@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.imashnake.animite.social.util.toSocialErrorMessage
 import javax.inject.Inject
 
 @HiltViewModel
@@ -41,6 +42,13 @@ class CommentsViewModel @Inject constructor(
     private val _isSubmitting = MutableStateFlow(false)
     val isSubmitting: StateFlow<Boolean> = _isSubmitting.asStateFlow()
 
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+    fun clearError() {
+        _errorMessage.value = null
+    }
+
     fun setTarget(targetId: String) {
         if (_targetId.value != targetId) {
             _targetId.value = targetId
@@ -60,16 +68,22 @@ class CommentsViewModel @Inject constructor(
 
         viewModelScope.launch(Dispatchers.IO) {
             _isSubmitting.value = true
-            commentRepository.addComment(
-                targetType = targetType,
-                targetId = targetId,
-                animeId = animeId,
-                episodeNumber = episodeNumber,
-                author = user,
-                content = content,
-                parentId = parentId
-            )
-            _isSubmitting.value = false
+            _errorMessage.value = null
+            try {
+                commentRepository.addComment(
+                    targetType = targetType,
+                    targetId = targetId,
+                    animeId = animeId,
+                    episodeNumber = episodeNumber,
+                    author = user,
+                    content = content,
+                    parentId = parentId
+                ).onFailure {
+                    _errorMessage.value = it.toSocialErrorMessage("Failed to post comment")
+                }
+            } finally {
+                _isSubmitting.value = false
+            }
         }
     }
 

@@ -14,6 +14,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,8 +37,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -56,16 +60,51 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.util.fastCoerceIn
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cake
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material3.TabRow
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Settings
 import com.imashnake.animite.social.model.AuthState
 import com.imashnake.animite.social.ui.auth.AuthContent
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -105,7 +144,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -118,6 +160,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import com.imashnake.animite.core.ui.tokens.RoleColors
+import com.imashnake.animite.core.ui.tokens.StatusColors
+import com.imashnake.animite.core.ui.tokens.SemanticColors
 import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -142,7 +187,23 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil3.compose.AsyncImage
 import com.imashnake.animite.social.model.AnimiteUser
+import com.imashnake.animite.social.model.AvatarShape
+import com.imashnake.animite.social.model.FieldVisibility
+import com.imashnake.animite.social.model.isVisibleTo
+import com.imashnake.animite.social.model.ProfileCustomization
+import com.imashnake.animite.social.model.ProfileDesignTier
+import com.imashnake.animite.social.model.EliteFeatures
+import com.imashnake.animite.social.model.EliteRoleBadge
+import com.imashnake.animite.social.model.Tier
+import com.imashnake.animite.social.ui.profile.BannerCropDialog
 import com.imashnake.animite.social.model.Comment
+import com.imashnake.animite.social.model.AnimeListEntry
+import com.imashnake.animite.social.model.AnimeListStats
+import com.imashnake.animite.social.ui.animelist.AnimeListStatsCard
+import com.imashnake.animite.social.model.WatchStatus
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -172,11 +233,12 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
  * .getCommentsByUser); Media aggregates the anime/episodes they posted about.
  * See docs/profile-redesign/DESIGN.md for tokens, states and QA checklists.
  */
-private enum class ProfileTab(@param:androidx.annotation.StringRes val titleRes: Int) {
+internal enum class ProfileTab(@param:androidx.annotation.StringRes val titleRes: Int) {
     POSTS(com.imashnake.animite.social.R.string.posts),
     REPLIES(com.imashnake.animite.social.R.string.replies),
     MEDIA(com.imashnake.animite.social.R.string.media),
     LIKES(com.imashnake.animite.social.R.string.likes),
+    LIBRARY(com.imashnake.animite.social.R.string.library_tab),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -190,6 +252,8 @@ fun UserProfileScreen(
     onNavigateToSettings: (() -> Unit)? = null,
     onNavigateToAccountSettings: (() -> Unit)? = null,
     onNavigateToOwnerControlCenter: (() -> Unit)? = null,
+    onNavigateToAnimeList: ((userId: String) -> Unit)? = null,
+    onNavigateToAnime: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier,
     viewModel: UserProfileViewModel = hiltViewModel(),
 ) {
@@ -199,6 +263,8 @@ fun UserProfileScreen(
     val posts by viewModel.userPosts.collectAsState()
     val animeStats by viewModel.animeStats.collectAsState()
     val libraryEntries by viewModel.libraryEntries.collectAsState()
+    val animeListEntries by viewModel.animeListEntries.collectAsState()
+    val animeListStats by viewModel.animeListStats.collectAsState()
     val isFollowing by viewModel.isFollowing.collectAsState()
     val isBlocked by viewModel.isBlocked.collectAsState()
     val uiMessage by viewModel.uiMessage.collectAsState()
@@ -220,11 +286,13 @@ fun UserProfileScreen(
         }
     }
 
+    var pendingBannerCropUri by remember { mutableStateOf<Uri?>(null) }
+
     val bannerPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            viewModel.onBannerImageSelected(context, uri)
+            pendingBannerCropUri = uri
         }
     }
 
@@ -242,7 +310,6 @@ fun UserProfileScreen(
     val isUploadingLiveCover = liveCoverUploadState is LiveCoverUploadState.Uploading || liveCoverUploadState is LiveCoverUploadState.Validating
 
     var showMenu by remember { mutableStateOf(false) }
-    var showEditDialog by remember { mutableStateOf(false) }
     var showBlockConfirmDialog by remember { mutableStateOf(false) }
     var showReportDialog by remember { mutableStateOf(false) }
     var showUnfollowDialog by remember { mutableStateOf(false) }
@@ -250,6 +317,9 @@ fun UserProfileScreen(
     var showAvatarOptionsDialog by remember { mutableStateOf(false) }
     var showCoverOptionsDialog by remember { mutableStateOf(false) }
     var showRoleManagementDialog by remember { mutableStateOf(false) }
+    var showElitePromotionDialog by remember { mutableStateOf(false) }
+    var showEliteRevokeDialog by remember { mutableStateOf(false) }
+    var showEliteLockedDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(liveCoverUploadState) {
         if (liveCoverUploadState is LiveCoverUploadState.Error) {
@@ -320,8 +390,9 @@ fun UserProfileScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         modifier = modifier
     ) { _ ->
-        val isOwnProfile = viewModel.isViewingOwnProfile
-        if (isOwnProfile && authState is AuthState.Unauthenticated) {
+        val isOwnProfile by viewModel.isViewingOwnProfile.collectAsState()
+        val isSelf = onBack == null || isOwnProfile
+        if (isSelf && authState is AuthState.Unauthenticated) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -337,80 +408,235 @@ fun UserProfileScreen(
                 )
             }
         } else if (user == null) {
+            var isTimeout by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                kotlinx.coroutines.delay(7000)
+                isTimeout = true
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(42.dp)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "جاري التحقق والمزامنة...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                if (isTimeout && authState !is AuthState.Loading) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = if (isSelf) "تعذر مزامنة بيانات حسابك حالياً" else "المستخدم غير موجود أو تعذر تحميل بياناته",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (onBack != null) {
+                                OutlinedButton(onClick = onBack) {
+                                    Text("رجوع")
+                                }
+                            }
+                            Button(onClick = { isTimeout = false }) {
+                                Text("إعادة المحاولة")
+                            }
+                        }
+                    }
+                } else {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(42.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "جاري التحقق والمزامنة...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         } else {
             key(viewModel.targetUserId) {
                 val profile = user!!
-            val allPosts = posts
-            val topLevelPosts = remember(allPosts) { allPosts?.filter { it.parentId == null } }
-            val replies = remember(allPosts) { allPosts?.filter { it.parentId != null } }
-            val mediaGroups = remember(allPosts) { allPosts?.let { groupMediaByAnime(it) } }
+                val allPosts = posts
+                val topLevelPosts = remember(allPosts) { allPosts?.filter { it.parentId == null } }
+                val replies = remember(allPosts) { allPosts?.filter { it.parentId != null } }
+                val mediaGroups = remember(allPosts) { allPosts?.let { groupMediaByAnime(it) } }
+                val isBasicTier = profile.designTier == ProfileDesignTier.BASIC
 
-            // Centre the column and cap its width on tablets/foldables.
-            Box(
-                modifier = Modifier
-                    .fillMaxSize(),
-                contentAlignment = Alignment.TopCenter
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .widthIn(max = 600.dp)
-                ) {
-                    val accentColor = remember(profile.customization.accentColor) {
-                        try {
-                            Color(android.graphics.Color.parseColor(profile.customization.accentColor))
-                        } catch (e: Exception) {
-                            Color(0xFF00D1FF)
+                // Banner (cover): max height 200.dp, min height 76.dp
+                val maxBannerHeight = 200.dp
+                val minBannerHeight = 76.dp
+                val tabRowHeight = 48.dp
+                val density = LocalDensity.current
+                val maxBannerHeightPx = with(density) { maxBannerHeight.toPx() }
+                val minBannerHeightPx = with(density) { minBannerHeight.toPx() }
+
+                var bannerHeightPx by remember { mutableFloatStateOf(maxBannerHeightPx) }
+                var isBannerExpanded by rememberSaveable { mutableStateOf(true) }
+                var isManualToggleAnimating by remember { mutableStateOf(false) }
+
+                // Single `ratio` value (1f = fully expanded, 0f = fully collapsed) computed in one place
+                val rawRatio = if (isBannerExpanded) {
+                    ((bannerHeightPx - minBannerHeightPx) / (maxBannerHeightPx - minBannerHeightPx))
+                        .fastCoerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+
+                val ratio by animateFloatAsState(
+                    targetValue = rawRatio,
+                    animationSpec = tween(durationMillis = if (isManualToggleAnimating) 350 else 50),
+                    finishedListener = { isManualToggleAnimating = false },
+                    label = "profile_collapse_ratio"
+                )
+
+                val nestedScrollConnection = remember(minBannerHeightPx, maxBannerHeightPx) {
+                    object : NestedScrollConnection {
+                        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                            // If available.y > 0 do nothing; otherwise reduce banner height by scroll amount,
+                            // clamp between min and max, and consume only the portion used by the banner.
+                            if (available.y > 0f) return Offset.Zero
+                            isManualToggleAnimating = false
+                            if (!isBannerExpanded) return Offset.Zero
+
+                            val prevBannerHeight = bannerHeightPx
+                            bannerHeightPx = (bannerHeightPx + available.y)
+                                .fastCoerceIn(minBannerHeightPx, maxBannerHeightPx)
+                            val consumedY = bannerHeightPx - prevBannerHeight
+                            return Offset(0f, consumedY)
+                        }
+
+                        override fun onPostScroll(
+                            consumed: Offset,
+                            available: Offset,
+                            source: NestedScrollSource,
+                        ): Offset {
+                            // When scrolling down and the content is at the top, expand the banner back.
+                            if (available.y > 0f) {
+                                isManualToggleAnimating = false
+                                isBannerExpanded = true
+                                val prevBannerHeight = bannerHeightPx
+                                bannerHeightPx = (bannerHeightPx + available.y)
+                                    .fastCoerceIn(minBannerHeightPx, maxBannerHeightPx)
+                                val consumedY = bannerHeightPx - prevBannerHeight
+                                return Offset(0f, consumedY)
+                            }
+                            return Offset.Zero
                         }
                     }
+                }
 
-                    ProfileHeader(
+                val profileTabs = remember(isBasicTier) {
+                    if (isBasicTier) {
+                        listOf(ProfileTab.POSTS, ProfileTab.REPLIES, ProfileTab.MEDIA, ProfileTab.LIKES)
+                    } else {
+                        listOf(ProfileTab.POSTS, ProfileTab.REPLIES, ProfileTab.MEDIA, ProfileTab.LIBRARY)
+                    }
+                }
+                val pagerState = rememberPagerState(pageCount = { profileTabs.size })
+
+                val features = remember(profile.tier, profile.isOwner, profile.role) {
+                    profile.features
+                }
+
+                val effectiveAccentHex = if (features.canUseCustomAccentColors) {
+                    profile.customization.accentColor
+                } else {
+                    features.standardAccentColor
+                }
+
+                val accentColor = try {
+                    Color(android.graphics.Color.parseColor(effectiveAccentHex))
+                } catch (e: Exception) {
+                    MaterialTheme.colorScheme.primary
+                }
+
+                val coverType = remember(
+                    profile.liveCoverUrl,
+                    profile.liveCoverMediaType,
+                    profile.liveCoverPosterUrl,
+                    profile.bannerUrl,
+                    features.canUseLiveCover
+                ) {
+                    resolveCoverType(
+                        liveCoverUrl = profile.liveCoverUrl,
+                        mediaType = profile.liveCoverMediaType,
+                        posterUrl = profile.liveCoverPosterUrl,
+                        bannerUrl = profile.bannerUrl,
+                        canUseLiveCover = features.canUseLiveCover
+                    )
+                }
+
+                val nestedScrollDispatcher = remember {
+                    androidx.compose.ui.input.nestedscroll.NestedScrollDispatcher()
+                }
+
+                val likedPosts = if (isBasicTier) {
+                    viewModel.likedPosts.collectAsState().value
+                } else {
+                    null
+                }
+
+                if (isBasicTier) {
+                    BasicProfileContent(
                         profile = profile,
-                        stats = animeStats,
-                        accentColor = accentColor,
-                        isCurrentUser = viewModel.isCurrentUser,
+                        viewModel = viewModel,
+                        currentUserProfile = currentUserProfile,
+                        allPosts = allPosts,
+                        topLevelPosts = topLevelPosts,
+                        replies = replies,
+                        mediaGroups = mediaGroups,
+                        likedPosts = likedPosts,
                         isFollowing = isFollowing,
+                        isBlocked = isBlocked,
                         isUploadingAvatar = isUploadingAvatar,
+                        bottomPadding = bottomPadding,
+                        accentColor = accentColor,
                         onBack = onBack,
-                        onShare = {
+                        onNavigateToSettings = onNavigateToSettings,
+                        onNavigateToEditProfile = onNavigateToEditProfile,
+                        onNavigateToChat = onNavigateToChat,
+                        onNavigateToFollowers = onNavigateToFollowers,
+                        onNavigateToFollowing = onNavigateToFollowing,
+                        onShareProfile = {
                             val shareIntent = Intent().apply {
                                 action = Intent.ACTION_SEND
                                 putExtra(Intent.EXTRA_TEXT, "Check out ${profile.displayName} on Animite! @${profile.username}")
                                 type = "text/plain"
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share profile"))
+                            context.startActivity(Intent.createChooser(shareIntent, "مشاركة الملف الشخصي"))
                         },
-                        onSettingsClick = if (viewModel.isCurrentUser) onNavigateToSettings else null,
-                        onMoreClick = if (!viewModel.isCurrentUser) { { showMenu = true } } else null,
-                        showMenu = showMenu,
-                        onDismissMenu = { showMenu = false },
-                        isBlocked = isBlocked,
-                        onUnblockClick = { viewModel.unblockUser() },
-                        onBlockClick = { showBlockConfirmDialog = true },
-                        onReportClick = { showReportDialog = true },
+                        onPreviewBanner = {
+                            if (!profile.bannerUrl.isNullOrBlank()) {
+                                previewImageUrl = profile.bannerUrl
+                            }
+                        },
+                        onToggleBlockUser = {
+                            if (isBlocked) viewModel.unblockUser() else showBlockConfirmDialog = true
+                        },
+                        onReportUser = { showReportDialog = true },
                         onAvatarClick = {
                             if (viewModel.isCurrentUser) {
                                 if (!profile.photoUrl.isNullOrBlank()) {
@@ -430,147 +656,250 @@ fun UserProfileScreen(
                             if (viewModel.isCurrentUser) {
                                 showCoverOptionsDialog = true
                             } else {
-                                if (!profile.liveCoverPosterUrl.isNullOrBlank()) {
-                                    previewImageUrl = profile.liveCoverPosterUrl
-                                } else if (!profile.bannerUrl.isNullOrBlank()) {
+                                if (!profile.bannerUrl.isNullOrBlank()) {
                                     previewImageUrl = profile.bannerUrl
                                 }
                             }
                         },
-                        onEditClick = {
-                            if (onNavigateToEditProfile != null) {
-                                onNavigateToEditProfile()
-                            } else {
-                                showEditDialog = true
-                            }
-                        },
                         onFollowClick = { viewModel.toggleFollow() },
                         onUnfollowClick = { showUnfollowDialog = true },
-                        onMessageClick = {
-                            onNavigateToChat(profile.uid, profile.displayName, profile.photoUrl)
-                        },
-                        onFollowersClick = { onNavigateToFollowers(profile.uid) },
-                        onFollowingClick = { onNavigateToFollowing(profile.uid) },
-                        canManageRoles = (currentUserProfile?.isOwner == true || currentUserProfile?.isAdmin == true) && !viewModel.isCurrentUser,
-                        onManageRolesClick = { showRoleManagementDialog = true },
                         onOwnerControlCenterClick = if (currentUserProfile?.isOwner == true) onNavigateToOwnerControlCenter else null,
+                        showMenu = showMenu,
+                        onShowMenuChange = { showMenu = it },
+                        isViewerOwner = currentUserProfile?.isOwner == true && !viewModel.isCurrentUser,
+                        canManageRoles = (currentUserProfile?.isOwner == true || currentUserProfile?.isAdmin == true) && !viewModel.isCurrentUser,
+                        onPromoteToElite = { showElitePromotionDialog = true },
+                        onRevokeElite = { showEliteRevokeDialog = true },
+                        onManageRoles = { showRoleManagementDialog = true }
                     )
+                } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(nestedScrollConnection, nestedScrollDispatcher)
+                        .background(MaterialTheme.colorScheme.background),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .widthIn(max = 600.dp)
+                    ) {
+                        // 1. Collapsing Profile Header (Banner + Top Bar + Avatar + Details) driven by `ratio`
+                        ProfileHeader(
+                            profile = profile,
+                            features = features,
+                            stats = animeStats,
+                            ratio = ratio,
+                            coverType = coverType,
+                            accentColor = accentColor,
+                            isCurrentUser = viewModel.isCurrentUser,
+                            isFollowing = isFollowing,
+                            isBlocked = isBlocked,
+                            isUploadingAvatar = isUploadingAvatar,
+                            isViewerOwner = currentUserProfile?.isOwner == true && !viewModel.isCurrentUser,
+                            canManageRoles = (currentUserProfile?.isOwner == true || currentUserProfile?.isAdmin == true) && !viewModel.isCurrentUser,
+                            showMenu = showMenu,
+                            onShowMenuChange = { showMenu = it },
+                            onBack = onBack,
+                            onToggleBanner = {
+                                isManualToggleAnimating = true
+                                val currentlyExpanded = isBannerExpanded && rawRatio > 0.5f
+                                if (currentlyExpanded) {
+                                    isBannerExpanded = false
+                                    bannerHeightPx = minBannerHeightPx
+                                    nestedScrollDispatcher.dispatchPreScroll(
+                                        Offset(0f, -400f),
+                                        NestedScrollSource.UserInput
+                                    )
+                                } else {
+                                    isBannerExpanded = true
+                                    bannerHeightPx = maxBannerHeightPx
+                                    nestedScrollDispatcher.dispatchPostScroll(
+                                        Offset(0f, 400f),
+                                        Offset(0f, 400f),
+                                        NestedScrollSource.UserInput
+                                    )
+                                }
+                            },
+                            onNavigateToSettings = onNavigateToSettings,
+                            onShareProfile = {
+                                val shareIntent = Intent().apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(Intent.EXTRA_TEXT, "Check out ${profile.displayName} on Animite! @${profile.username}")
+                                    type = "text/plain"
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "مشاركة الملف الشخصي"))
+                            },
+                            onPreviewBanner = {
+                                if (features.canUseLiveCover && !profile.liveCoverPosterUrl.isNullOrBlank()) {
+                                    previewImageUrl = profile.liveCoverPosterUrl
+                                } else if (!profile.bannerUrl.isNullOrBlank()) {
+                                    previewImageUrl = profile.bannerUrl
+                                }
+                            },
+                            onToggleBlockUser = {
+                                if (isBlocked) viewModel.unblockUser() else showBlockConfirmDialog = true
+                            },
+                            onReportUser = { showReportDialog = true },
+                            onManageRoles = { showRoleManagementDialog = true },
+                            onPromoteToElite = { showElitePromotionDialog = true },
+                            onRevokeElite = { showEliteRevokeDialog = true },
+                            onAvatarClick = {
+                                if (viewModel.isCurrentUser) {
+                                    if (!profile.photoUrl.isNullOrBlank()) {
+                                        showAvatarOptionsDialog = true
+                                    } else {
+                                        photoPickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    }
+                                } else {
+                                    if (!profile.photoUrl.isNullOrBlank()) {
+                                        previewImageUrl = profile.photoUrl
+                                    }
+                                }
+                            },
+                            onBannerClick = {
+                                if (viewModel.isCurrentUser) {
+                                    showCoverOptionsDialog = true
+                                } else {
+                                    if (features.canUseLiveCover && !profile.liveCoverPosterUrl.isNullOrBlank()) {
+                                        previewImageUrl = profile.liveCoverPosterUrl
+                                    } else if (!profile.bannerUrl.isNullOrBlank()) {
+                                        previewImageUrl = profile.bannerUrl
+                                    }
+                                }
+                            },
+                            onEditClick = {
+                                onNavigateToEditProfile?.invoke()
+                            },
+                            onFollowClick = { viewModel.toggleFollow() },
+                            onUnfollowClick = { showUnfollowDialog = true },
+                            onMessageClick = {
+                                onNavigateToChat(profile.uid, profile.displayName, profile.photoUrl)
+                            },
+                            onFollowersClick = { onNavigateToFollowers(profile.uid) },
+                            onFollowingClick = { onNavigateToFollowing(profile.uid) },
+                            onOwnerControlCenterClick = if (currentUserProfile?.isOwner == true) onNavigateToOwnerControlCenter else null,
+                        )
 
-                    val pagerState = rememberPagerState(pageCount = { ProfileTab.entries.size })
-                    androidx.compose.material3.TabRow(
-                        selectedTabIndex = pagerState.currentPage,
-                        containerColor = Color.Transparent,
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                        indicator = { tabPositions ->
-                            if (pagerState.currentPage < tabPositions.size) {
-                                androidx.compose.material3.TabRowDefaults.SecondaryIndicator(
-                                    modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
-                                    height = 2.5.dp,
-                                    color = MaterialTheme.colorScheme.onSurface
+                        // 2. Sticky Tab Row: stays pinned right under the top area and never scrolls away
+                        if ("tabs" in profile.customization.visibleSections) {
+                        TabRow(
+                            selectedTabIndex = pagerState.currentPage,
+                            containerColor = MaterialTheme.colorScheme.background,
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                            indicator = { tabPositions ->
+                                if (pagerState.currentPage < tabPositions.size) {
+                                    androidx.compose.material3.TabRowDefaults.SecondaryIndicator(
+                                        modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
+                                        height = 3.dp,
+                                        color = accentColor
+                                    )
+                                }
+                            },
+                            divider = {
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                                    thickness = 0.8.dp
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(tabRowHeight)
+                        ) {
+                            profileTabs.forEachIndexed { index, tab ->
+                                val isSelected = pagerState.currentPage == index
+                                Tab(
+                                    selected = isSelected,
+                                    onClick = {
+                                        scope.launch { pagerState.animateScrollToPage(index) }
+                                    },
+                                    text = {
+                                        Text(
+                                            text = androidx.compose.ui.res.stringResource(tab.titleRes),
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            style = MaterialTheme.typography.titleSmall.copy(fontSize = 15.sp),
+                                            color = if (isSelected) {
+                                                MaterialTheme.colorScheme.onSurface
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                                            }
+                                        )
+                                    }
                                 )
                             }
-                        },
-                        divider = {
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                thickness = 1.dp
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        ProfileTab.entries.forEachIndexed { index, tab ->
-                            val isSelected = pagerState.currentPage == index
-                            Tab(
-                                selected = isSelected,
-                                onClick = {
-                                    scope.launch { pagerState.animateScrollToPage(index) }
-                                },
-                                text = {
-                                    Text(
-                                        text = androidx.compose.ui.res.stringResource(tab.titleRes),
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
-                                        maxLines = 1,
-                                        color = if (isSelected) {
-                                            MaterialTheme.colorScheme.onSurface
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                        }
-                                    )
-                                }
-                            )
                         }
-                    }
 
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    ) { page ->
-                        when (ProfileTab.entries[page]) {
-                            ProfileTab.POSTS -> PostsTabContent(
-                                posts = topLevelPosts,
-                                profile = profile,
-                                emptyText = if (viewModel.isCurrentUser) {
-                                    androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.my_posts_empty)
-                                } else {
-                                    androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.no_posts_yet)
-                                },
-                                contentPadding = PaddingValues(bottom = bottomPadding)
-                            )
+                        // 3. Tab Content Pager (fills remaining space below sticky Tab Row)
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) { page ->
+                            val extraBottomPadding = bottomPadding + 32.dp
+                            when (profileTabs[page]) {
+                                ProfileTab.POSTS -> PostsTabContent(
+                                    posts = topLevelPosts,
+                                    profile = profile,
+                                    emptyText = if (viewModel.isCurrentUser) {
+                                        androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.my_posts_empty)
+                                    } else {
+                                        androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.no_posts_yet)
+                                    },
+                                    contentPadding = PaddingValues(bottom = extraBottomPadding),
+                                    onLikeClick = if (isBasicTier) viewModel::toggleCommentLike else null,
+                                    viewModel = viewModel
+                                )
 
-                            ProfileTab.REPLIES -> PostsTabContent(
-                                posts = replies,
-                                profile = profile,
-                                emptyText = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.no_replies_yet),
-                                contentPadding = PaddingValues(bottom = bottomPadding)
-                            )
+                                ProfileTab.REPLIES -> PostsTabContent(
+                                    posts = replies,
+                                    profile = profile,
+                                    emptyText = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.no_replies_yet),
+                                    contentPadding = PaddingValues(bottom = extraBottomPadding),
+                                    onLikeClick = if (isBasicTier) viewModel::toggleCommentLike else null,
+                                    viewModel = viewModel
+                                )
 
-                            ProfileTab.MEDIA -> MediaTabContent(
-                                groups = mediaGroups,
-                                emptyText = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.no_media_yet),
-                                contentPadding = PaddingValues(bottom = bottomPadding)
-                            )
+                                ProfileTab.MEDIA -> MediaTabContent(
+                                    groups = mediaGroups,
+                                    emptyText = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.no_media_yet),
+                                    contentPadding = PaddingValues(bottom = extraBottomPadding)
+                                )
 
-                            ProfileTab.LIKES -> {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(32.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.no_posts_yet),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                                ProfileTab.LIKES -> PostsTabContent(
+                                    posts = likedPosts,
+                                    profile = profile,
+                                    emptyText = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.no_likes_yet),
+                                    contentPadding = PaddingValues(bottom = extraBottomPadding),
+                                    onLikeClick = viewModel::toggleCommentLike,
+                                    viewModel = viewModel
+                                )
+
+                                ProfileTab.LIBRARY -> LibraryTabContent(
+                                    userId = profile.uid,
+                                    stats = animeListStats,
+                                    entries = animeListEntries,
+                                    isCurrentUser = viewModel.isCurrentUser,
+                                    onAnimeClick = { animeId -> onNavigateToAnime?.invoke(animeId) },
+                                    onProgressUpdate = { entryId, progress, total ->
+                                        viewModel.updateAnimeListProgress(entryId, progress, total)
+                                    },
+                                    onToggleFavorite = { entryId, isFav ->
+                                        viewModel.toggleAnimeListFavorite(entryId, isFav)
+                                    },
+                                    contentPadding = PaddingValues(bottom = extraBottomPadding)
+                                )
                             }
+                        }
                         }
                     }
                 }
+                }
             }
         }
-    }
-    }
-
-    // Edit Profile Dialog
-    if (showEditDialog && user != null) {
-        EditProfileDialog(
-            user = user!!,
-            onDismiss = { showEditDialog = false },
-            onSave = { displayName, bio, location, websiteUrl, isPrivate, allowMessages, username ->
-                viewModel.updateProfile(displayName, bio, location, websiteUrl, isPrivate, allowMessages, username)
-                showEditDialog = false
-            },
-            onChangeAvatar = {
-                photoPickerLauncher.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                )
-            },
-            isUploadingAvatar = isUploadingAvatar
-        )
     }
 
     // Unfollow Confirmation Dialog (Twitter asks before unfollowing)
@@ -686,6 +1015,15 @@ fun UserProfileScreen(
                     ) {
                         Text("تغيير الصورة", style = MaterialTheme.typography.bodyLarge)
                     }
+                    TextButton(
+                        onClick = {
+                            showAvatarOptionsDialog = false
+                            onNavigateToEditProfile?.invoke()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("تعديل الملف الشخصي والمظهر", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+                    }
                 }
             },
             confirmButton = {},
@@ -699,6 +1037,7 @@ fun UserProfileScreen(
 
     // Cover Options Dialog (for current user)
     if (showCoverOptionsDialog && user != null) {
+        val ownFeatures = user!!.features
         AlertDialog(
             onDismissRequest = { showCoverOptionsDialog = false },
             title = {
@@ -728,19 +1067,38 @@ fun UserProfileScreen(
                         TextButton(
                             onClick = {
                                 showCoverOptionsDialog = false
-                                liveCoverPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                                )
+                                if (ownFeatures.canUseLiveCover) {
+                                    liveCoverPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                                    )
+                                } else {
+                                    showEliteLockedDialog = true
+                                }
                             },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                Text("تعيين غلاف متحرك (فيديو MP4 أو GIF)", style = MaterialTheme.typography.bodyLarge)
+                                Icon(
+                                    imageVector = if (ownFeatures.canUseLiveCover) Icons.Default.PlayArrow else Icons.Default.Lock,
+                                    contentDescription = if (ownFeatures.canUseLiveCover) null else androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_locked_label),
+                                    tint = if (ownFeatures.canUseLiveCover) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("تعيين غلاف متحرك (فيديو حتى 30 ثانية أو GIF)", style = MaterialTheme.typography.bodyLarge)
+                                    if (!ownFeatures.canUseLiveCover) {
+                                        Text(
+                                            text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_locked_label),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -751,7 +1109,9 @@ fun UserProfileScreen(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
                             },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -759,17 +1119,19 @@ fun UserProfileScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Icon(Icons.Default.PhotoCamera, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                Text("تعيين غلاف ثابت (صورة)", style = MaterialTheme.typography.bodyLarge)
+                                Text("تعيين غلاف ثابت (صورة مع اقتصاص 3:1)", style = MaterialTheme.typography.bodyLarge)
                             }
                         }
 
-                        if (!user!!.liveCoverUrl.isNullOrBlank()) {
+                        if (ownFeatures.canUseLiveCover && !user!!.liveCoverUrl.isNullOrBlank()) {
                             TextButton(
                                 onClick = {
                                     showCoverOptionsDialog = false
                                     viewModel.removeLiveCover()
                                 },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -782,13 +1144,19 @@ fun UserProfileScreen(
                             }
                         }
 
-                        if (!user!!.liveCoverPosterUrl.isNullOrBlank() || !user!!.bannerUrl.isNullOrBlank()) {
+                        if ((ownFeatures.canUseLiveCover && !user!!.liveCoverPosterUrl.isNullOrBlank()) || !user!!.bannerUrl.isNullOrBlank()) {
                             TextButton(
                                 onClick = {
                                     showCoverOptionsDialog = false
-                                    previewImageUrl = user!!.liveCoverPosterUrl ?: user!!.bannerUrl
+                                    previewImageUrl = if (ownFeatures.canUseLiveCover) {
+                                        user!!.liveCoverPosterUrl ?: user!!.bannerUrl
+                                    } else {
+                                        user!!.bannerUrl
+                                    }
                                 },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -805,8 +1173,227 @@ fun UserProfileScreen(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showCoverOptionsDialog = false }) {
+                TextButton(
+                    onClick = { showCoverOptionsDialog = false },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
                     Text("إلغاء")
+                }
+            }
+        )
+    }
+
+    // Elite Locked Feature Explanation Dialog (for regular users)
+    if (showEliteLockedDialog) {
+        AlertDialog(
+            onDismissRequest = { showEliteLockedDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_locked_label),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_locked_dialog_title),
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            },
+            text = {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_locked_dialog_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showEliteLockedDialog = false },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text(
+                        text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_locked_dialog_dismiss),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        )
+    }
+
+    // Owner-Only Promote to Elite Confirmation Dialog (with optional Role Badges selection)
+    if (showElitePromotionDialog && user != null && currentUserProfile?.isOwner == true) {
+        var selectedBadges by remember(user!!.uid) {
+            mutableStateOf(user!!.eliteBadges.toSet())
+        }
+        AlertDialog(
+            onDismissRequest = { showElitePromotionDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_promote_dialog_title),
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = androidx.compose.ui.res.stringResource(
+                            com.imashnake.animite.social.R.string.elite_promote_dialog_message,
+                            user!!.displayName
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_select_badges_label),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        EliteRoleBadge.entries.forEach { badge ->
+                            val isSelected = badge.id in selectedBadges
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerHigh
+                                },
+                                border = BorderStroke(
+                                    width = 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        selectedBadges = if (isSelected) {
+                                            selectedBadges - badge.id
+                                        } else {
+                                            selectedBadges + badge.id
+                                        }
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = badge.labelAr,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    androidx.compose.material3.Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = null
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.promoteToElite(
+                            targetUid = user!!.uid,
+                            eliteBadges = selectedBadges.toList()
+                        )
+                        showElitePromotionDialog = false
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text(
+                        text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_promote_confirm),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showElitePromotionDialog = false },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text(androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // Owner-Only Revoke Elite Confirmation Dialog
+    if (showEliteRevokeDialog && user != null && currentUserProfile?.isOwner == true) {
+        AlertDialog(
+            onDismissRequest = { showEliteRevokeDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(28.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_revoke_dialog_title),
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+            },
+            text = {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(
+                        com.imashnake.animite.social.R.string.elite_revoke_dialog_message,
+                        user!!.displayName
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.revokeElite(user!!.uid)
+                        showEliteRevokeDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ),
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text(
+                        text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_revoke_confirm),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showEliteRevokeDialog = false },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text(androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.cancel))
                 }
             }
         )
@@ -979,26 +1566,46 @@ fun UserProfileScreen(
             }
         )
     }
+
+    // 3:1 Interactive Banner Crop Dialog
+    if (pendingBannerCropUri != null) {
+        BannerCropDialog(
+            imageUri = pendingBannerCropUri!!,
+            onDismiss = { pendingBannerCropUri = null },
+            onCropConfirmed = { croppedBytes ->
+                pendingBannerCropUri = null
+                viewModel.uploadBanner(croppedBytes)
+            }
+        )
+    }
 }
 
 @Composable
 private fun ProfileHeader(
     profile: AnimiteUser,
+    features: EliteFeatures,
     stats: UserAnimeStats,
+    ratio: Float,
+    coverType: CoverType,
     accentColor: Color,
     isCurrentUser: Boolean,
     isFollowing: Boolean,
-    isUploadingAvatar: Boolean,
-    onBack: (() -> Unit)?,
-    onShare: () -> Unit,
-    onSettingsClick: (() -> Unit)?,
-    onMoreClick: (() -> Unit)?,
-    showMenu: Boolean,
-    onDismissMenu: () -> Unit,
     isBlocked: Boolean,
-    onUnblockClick: () -> Unit,
-    onBlockClick: () -> Unit,
-    onReportClick: () -> Unit,
+    isUploadingAvatar: Boolean,
+    isViewerOwner: Boolean,
+    canManageRoles: Boolean,
+    showMenu: Boolean,
+    onShowMenuChange: (Boolean) -> Unit,
+    onBack: (() -> Unit)?,
+    onToggleBanner: () -> Unit,
+    onNavigateToSettings: (() -> Unit)?,
+    onShareProfile: () -> Unit,
+    onPreviewBanner: () -> Unit,
+    onToggleBlockUser: () -> Unit,
+    onReportUser: () -> Unit,
+    onManageRoles: () -> Unit,
+    onPromoteToElite: () -> Unit,
+    onRevokeElite: () -> Unit,
     onAvatarClick: () -> Unit,
     onBannerClick: () -> Unit,
     onEditClick: () -> Unit,
@@ -1007,210 +1614,452 @@ private fun ProfileHeader(
     onMessageClick: () -> Unit,
     onFollowersClick: () -> Unit,
     onFollowingClick: () -> Unit,
-    canManageRoles: Boolean = false,
-    onManageRolesClick: (() -> Unit)? = null,
     onOwnerControlCenterClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
 
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val statusBarInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout)
-        val statusBarTopDp = statusBarInsets.asPaddingValues().calculateTopPadding()
-        val compact = maxWidth < 360.dp
-        val baseBannerHeight = if (compact) 160.dp else 190.dp
-        val bannerHeight = baseBannerHeight + statusBarTopDp
-        val avatarSize = if (compact) 76.dp else 92.dp
-        val squircleShape = RoundedCornerShape(26.dp)
+    val designTier = profile.designTier
+    val isBasic = designTier == ProfileDesignTier.BASIC
+    // Shared Animite header for every tier; only the avatar size/shape and cover height differ.
+    val maxBannerHeight = if (designTier == ProfileDesignTier.PREMIUM) 150.dp else 200.dp
+    val minBannerHeight = 76.dp
+    val currentBannerHeight = minBannerHeight + (maxBannerHeight - minBannerHeight) * ratio
+    val statusBarInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout)
 
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Box(
+    // Driven by ratio:
+    // 1. Banner alpha fades from 1f to 0.35f
+    val bannerAlpha = 0.35f + 0.65f * ratio
+
+    val customization = profile.customization
+    val canSeeBio = !isBasic || FieldVisibility.fromString(profile.privacy.bioVisibility)
+        .isVisibleTo(isCurrentUser, isFollowing)
+    val canSeeLocation = !isBasic || FieldVisibility.fromString(profile.privacy.locationVisibility)
+        .isVisibleTo(isCurrentUser, isFollowing)
+    val canSeeWebsite = !isBasic || FieldVisibility.fromString(profile.privacy.websiteVisibility)
+        .isVisibleTo(isCurrentUser, isFollowing)
+
+    // 2. Avatar, tier-aware since the profile now differentiates account ranks:
+    //    - regular accounts: a 84.dp circle
+    //    - elite accounts: the standard 84.dp x 100.dp square photo card
+    //    Elite accounts may still pick the circle/square presets. It fades out and slides up
+    //    as ratio goes to 0.
+    val avatarIsCircle = designTier != ProfileDesignTier.ELITE || customization.resolvedAvatarShape == AvatarShape.CIRCLE
+    val avatarWidth = when (designTier) {
+        ProfileDesignTier.BASIC -> 84.dp
+        ProfileDesignTier.PREMIUM -> 80.dp
+        ProfileDesignTier.ELITE -> 84.dp
+    }
+    val avatarHeight = if (avatarIsCircle) avatarWidth else 100.dp
+    val avatarShapeInstance: androidx.compose.ui.graphics.Shape = when {
+        avatarIsCircle -> CircleShape
+        customization.resolvedAvatarShape == AvatarShape.SQUARE -> RoundedCornerShape(0.dp)
+        else -> RoundedCornerShape(ProfileCustomization.PROFILE_CARD_CORNER_RADIUS.dp)
+    }
+    val avatarSlideUpPx = with(density) { 40.dp.toPx() }
+
+    // 3. User's name appears in the top bar only after the large name has scrolled out of view
+    val topBarNameAlpha = ((0.35f - ratio) / 0.35f).fastCoerceIn(0f, 1f)
+
+    // 4. Manual toggle button rotation (180 degrees when collapsed, ~350ms animation)
+    val toggleRotation by animateFloatAsState(
+        targetValue = if (ratio > 0.5f) 0f else 180f,
+        animationSpec = tween(durationMillis = 350),
+        label = "banner_toggle_rotation"
+    )
+
+    // Frame: BASIC keeps a quiet matte, PREMIUM gets an accent ring (its "more customised"
+    // signal), ELITE keeps the editorial matte under its optional glow.
+    val avatarFrameWidth = if (designTier == ProfileDesignTier.PREMIUM) 3.dp else 2.dp
+    val avatarFrameColor = if (designTier == ProfileDesignTier.PREMIUM) {
+        accentColor.copy(alpha = 0.85f)
+    } else {
+        MaterialTheme.colorScheme.background
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        // 1. Collapsing Banner Slot (200.dp max -> 76.dp min) + Avatar + Top Bar Controls
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(currentBannerHeight)
+                .clipToBounds()
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+        ) {
+            // Media slot (CoverType.Image, CoverType.Gif, CoverType.Video)
+            // Pauses video when banner is collapsed (ratio <= 0.25f) and resumes when expanded
+            CoverMedia(
+                coverType = coverType,
+                isOwner = isCurrentUser,
+                isCoverVisible = ratio > 0.25f,
+                showControls = ratio > 0.55f,
+                onCoverClick = onBannerClick,
+                onAddCoverClick = if (isCurrentUser) onBannerClick else null,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(bannerHeight + avatarSize / 2 + 10.dp)
-            ) {
-                // 1. Cover banner extending seamlessly behind status bar with Live Cover & Animated Media
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = bannerAlpha }
+            )
+
+
+
+            // Dark gradient scrim behind top-bar name and @username in collapsed state so they stay readable over the cover
+            if (topBarNameAlpha > 0f) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(bannerHeight)
+                        .height(minBannerHeight)
                         .align(Alignment.TopCenter)
-                ) {
-                    LiveCoverPlayer(
-                        liveCoverUrl = profile.liveCoverUrl,
-                        posterUrl = profile.liveCoverPosterUrl,
-                        mediaType = profile.liveCoverMediaType,
-                        fallbackBannerUrl = profile.bannerUrl,
-                        isOwner = isCurrentUser,
-                        onCoverClick = onBannerClick,
-                        onAddCoverClick = if (isCurrentUser) onBannerClick else null,
+                        .graphicsLayer { alpha = topBarNameAlpha }
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.scrim.copy(alpha = 0.85f),
+                                    MaterialTheme.colorScheme.scrim.copy(alpha = 0.62f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+            }
+
+            if (!isBasic) {
+            // Avatar on Start (Right edge in RTL), flush with the cover's bottom edge:
+            // a circle for premium accounts, the square photo card for elite ones.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 16.dp)
+                    .size(width = avatarWidth, height = avatarHeight)
+                    .graphicsLayer {
+                        alpha = ratio
+                        translationY = -(1f - ratio) * avatarSlideUpPx
+                    }
+            ) {
+                if (features.canUseAvatarNeonGlow && customization.enableDecorativeEffects) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = 1.08f
+                                scaleY = 1.08f
+                                alpha = 0.45f
+                            }
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        accentColor.copy(alpha = 0.65f),
+                                        Color.Transparent
+                                    )
+                                ),
+                                shape = avatarShapeInstance
+                            )
                     )
                 }
 
-                // 2. Translucent floating top navigation buttons, safely positioned below status bar / cutout
+                if (!profile.photoUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = profile.photoUrl,
+                        contentDescription = "الصورة الشخصية لـ ${profile.displayName}",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(avatarShapeInstance)
+                            .background(MaterialTheme.colorScheme.surfaceVariant, avatarShapeInstance)
+                            .border(avatarFrameWidth, avatarFrameColor, avatarShapeInstance)
+                            .clickable(enabled = !isUploadingAvatar && ratio > 0.2f) {
+                                onAvatarClick()
+                            }
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(avatarShapeInstance)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        accentColor.copy(alpha = 0.85f),
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    )
+                                ),
+                                avatarShapeInstance
+                            )
+                            .border(avatarFrameWidth, avatarFrameColor, avatarShapeInstance)
+                            .clickable(enabled = !isUploadingAvatar && ratio > 0.2f) {
+                                onAvatarClick()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = (profile.displayName.firstOrNull()?.uppercase() ?: "K"),
+                            style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+
+                if (isUploadingAvatar) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f),
+                        shape = avatarShapeInstance,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(28.dp),
+                                strokeWidth = 3.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
+                }
+            }
+            }
+
+            // Top Bar Row inside the 76.dp min-height region (Start: Back, Center: Name, End: Toggle & Actions)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(minBannerHeight)
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(statusBarInsets)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Start (Right in RTL): Back button + Collapsed User Name
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .windowInsetsPadding(statusBarInsets)
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
-                        .align(Alignment.TopCenter),
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     if (onBack != null) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.42f),
-                            modifier = Modifier.size(38.dp)
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier.size(48.dp)
                         ) {
-                            IconButton(onClick = onBack, modifier = Modifier.fillMaxSize()) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                    contentDescription = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.back),
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    } else {
-                        Spacer(modifier = Modifier.size(38.dp))
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.42f),
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            IconButton(onClick = onBannerClick, modifier = Modifier.fillMaxSize()) {
-                                Icon(
-                                    imageVector = Icons.Default.Fullscreen,
-                                    contentDescription = "Expand cover",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-
-                        Surface(
-                            shape = CircleShape,
-                            color = Color.Black.copy(alpha = 0.42f),
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            IconButton(onClick = onShare, modifier = Modifier.fillMaxSize()) {
-                                Icon(
-                                    imageVector = Icons.Default.Share,
-                                    contentDescription = "Share",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(19.dp)
-                                )
-                            }
-                        }
-
-                        if (isCurrentUser && onSettingsClick != null) {
                             Surface(
                                 shape = CircleShape,
-                                color = Color.Black.copy(alpha = 0.42f),
-                                modifier = Modifier.size(38.dp)
+                                color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.8f),
+                                modifier = Modifier.size(36.dp)
                             ) {
-                                IconButton(onClick = onSettingsClick, modifier = Modifier.fillMaxSize()) {
+                                Box(contentAlignment = Alignment.Center) {
                                     Icon(
-                                        imageVector = Icons.Rounded.Settings,
-                                        contentDescription = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.settings),
-                                        tint = Color.White,
+                                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                        contentDescription = "رجوع",
+                                        tint = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
                         }
+                    }
 
-                        if (onMoreClick != null) {
-                            Box {
+                    // User's name appears in the top bar only after the large name has scrolled out of view
+                    Column(
+                        modifier = Modifier
+                            .padding(start = if (onBack == null) 8.dp else 0.dp, end = 8.dp)
+                            .graphicsLayer { alpha = topBarNameAlpha }
+                    ) {
+                        Text(
+                            text = profile.displayName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        androidx.compose.runtime.CompositionLocalProvider(
+                            androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
+                        ) {
+                            Text(
+                                text = "@${profile.username.removePrefix("@")}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                // End (Left in RTL): 1. Banner Toggle, 2. Settings / More Options
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (isCurrentUser) {
+                        if (onNavigateToSettings != null) {
+                            IconButton(
+                                onClick = onNavigateToSettings,
+                                modifier = Modifier.size(48.dp)
+                            ) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = Color.Black.copy(alpha = 0.42f),
-                                    modifier = Modifier.size(38.dp)
+                                    color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(36.dp)
                                 ) {
-                                    IconButton(onClick = onMoreClick, modifier = Modifier.fillMaxSize()) {
+                                    Box(contentAlignment = Alignment.Center) {
                                         Icon(
-                                            imageVector = Icons.Default.MoreVert,
-                                            contentDescription = "More",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                                DropdownMenu(
-                                    expanded = showMenu,
-                                    onDismissRequest = onDismissMenu
-                                ) {
-                                    if (!isCurrentUser) {
-                                        DropdownMenuItem(
-                                            text = { Text(if (isBlocked) "Unblock User" else "Block User") },
-                                            onClick = {
-                                                onDismissMenu()
-                                                if (isBlocked) onUnblockClick() else onBlockClick()
-                                            }
-                                        )
-                                        if (canManageRoles && onManageRolesClick != null) {
-                                            DropdownMenuItem(
-                                                text = { Text("تعيين الرتبة والشارة (إدارة)", color = MaterialTheme.colorScheme.primary) },
-                                                onClick = {
-                                                    onDismissMenu()
-                                                    onManageRolesClick()
-                                                }
-                                            )
-                                        }
-                                        DropdownMenuItem(
-                                            text = { Text("Report User", color = MaterialTheme.colorScheme.error) },
-                                            onClick = {
-                                                onDismissMenu()
-                                                onReportClick()
-                                            }
+                                            imageVector = Icons.Rounded.Settings,
+                                            contentDescription = "الإعدادات",
+                                            tint = accentColor,
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                // 3. Apple-style Squircle Avatar overlapping the banner
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
-                        .align(Alignment.BottomStart)
-                ) {
-                    // Squircle Avatar
-                    Box(modifier = Modifier.size(avatarSize)) {
-                        AsyncImage(
-                            model = profile.photoUrl,
-                            contentDescription = "Profile picture of ${profile.displayName}",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(squircleShape)
-                                .border(4.dp, MaterialTheme.colorScheme.background, squircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceVariant, squircleShape)
-                                .clickable(enabled = !isUploadingAvatar) {
-                                    onAvatarClick()
-                                }
-                        )
-
-                        if (isUploadingAvatar) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f),
-                                shape = squircleShape,
-                                modifier = Modifier.fillMaxSize()
+                    // Manual Banner Collapse/Expand Toggle Button (48.dp touch target, 180 deg rotation, 350ms)
+                    IconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                            onToggleBanner()
+                        },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.85f),
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = ImageVector.vectorResource(com.imashnake.animite.social.R.drawable.banner_toggle),
+                                    contentDescription = if (ratio > 0.5f) "طي الغلاف" else "توسيع الغلاف",
+                                    tint = accentColor,
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .graphicsLayer { rotationZ = toggleRotation }
+                                )
+                            }
+                        }
+                    }
+                    if (isCurrentUser) {
+                        if (onNavigateToSettings != null) {
+                            IconButton(
+                                onClick = onNavigateToSettings,
+                                modifier = Modifier.size(48.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(28.dp),
-                                        strokeWidth = 3.dp,
-                                        color = MaterialTheme.colorScheme.onPrimary
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Settings,
+                                            contentDescription = "الإعدادات",
+                                            tint = accentColor,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Box {
+                            IconButton(
+                                onClick = { onShowMenuChange(true) },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "المزيد من الخيارات",
+                                            tint = accentColor,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { onShowMenuChange(false) }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("مشاركة الملف الشخصي") },
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                                    onClick = {
+                                        onShowMenuChange(false)
+                                        onShareProfile()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("عرض الغلاف") },
+                                    leadingIcon = { Icon(Icons.Default.Fullscreen, contentDescription = null) },
+                                    onClick = {
+                                        onShowMenuChange(false)
+                                        onPreviewBanner()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(if (isBlocked) "إلغاء الحظر" else "حظر المستخدم") },
+                                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                                    onClick = {
+                                        onShowMenuChange(false)
+                                        onToggleBlockUser()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("الإبلاغ عن المستخدم") },
+                                    leadingIcon = { Icon(Icons.Default.Warning, contentDescription = null) },
+                                    onClick = {
+                                        onShowMenuChange(false)
+                                        onReportUser()
+                                    }
+                                )
+                                if (isViewerOwner && !profile.isOwner) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = if (profile.isElite) {
+                                                    androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_revoke_menu_action)
+                                                } else {
+                                                    androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.elite_promote_menu_action)
+                                                },
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (profile.isElite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                            )
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Star,
+                                                contentDescription = null,
+                                                tint = if (profile.isElite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                            )
+                                        },
+                                        onClick = {
+                                            onShowMenuChange(false)
+                                            if (profile.isElite) {
+                                                onRevokeElite()
+                                            } else {
+                                                onPromoteToElite()
+                                            }
+                                        }
+                                    )
+                                }
+                                if (canManageRoles) {
+                                    DropdownMenuItem(
+                                        text = { Text("إدارة الرتب") },
+                                        leadingIcon = { Icon(Icons.Default.Security, contentDescription = null) },
+                                        onClick = {
+                                            onShowMenuChange(false)
+                                            onManageRoles()
+                                        }
                                     )
                                 }
                             }
@@ -1218,190 +2067,202 @@ private fun ProfileHeader(
                     }
                 }
             }
+        }
 
-            // 4. Identity & Metadata Block with Inline Action Buttons
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                // Name row with Action Buttons (✉ Message / Follow / Edit) aligned to the end
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+        // 2. User Identity, Action Buttons & Metadata (Collapses smoothly driven by `ratio`)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (isBasic) Modifier else Modifier.clipToBounds())
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    val currentHeight = (placeable.height * ratio).roundToInt()
+                    layout(placeable.width, currentHeight) {
+                        val yOffset = -((1f - ratio) * placeable.height).roundToInt()
+                        placeable.placeRelative(0, yOffset)
+                    }
+                }
+                .graphicsLayer {
+                    alpha = (ratio * 1.15f).fastCoerceIn(0f, 1f)
+                }
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            if (isBasic) {
+                // 104.dp circle: half over the cover, half over the identity block.
+                val avatarOverlap by animateDpAsState(
+                    targetValue = 52.dp * ratio,
+                    animationSpec = tween(durationMillis = 80),
+                    label = "basic_avatar_overlap"
+                )
+                val avatarAlpha = (ratio * 1.25f).fastCoerceIn(0f, 1f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(avatarOverlap)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f, fill = false)
+                    Box(
+                        modifier = Modifier
+                            .offset(x = 0.dp, y = -avatarOverlap)
+                            .requiredSize(104.dp)
+                            .graphicsLayer {
+                                alpha = avatarAlpha
+                                scaleX = 0.72f + (0.28f * ratio)
+                                scaleY = 0.72f + (0.28f * ratio)
+                                translationY = with(density) { (1f - ratio) * 28.dp.toPx() }
+                            }
+                            .zIndex(1f)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .border(4.dp, MaterialTheme.colorScheme.background, CircleShape)
+                            .clickable(enabled = !isUploadingAvatar && ratio > 0.2f) { onAvatarClick() }
                     ) {
-                        Text(
-                            text = profile.displayName,
-                            style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.semantics { heading() }
-                        )
-                        if (profile.isOwner) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = CircleShape,
-                                color = Color(0xFFFFD700).copy(alpha = 0.2f),
-                                modifier = Modifier.size(20.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Security,
-                                        contentDescription = "Owner",
-                                        tint = Color(0xFFFFD700),
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                }
-                            }
-                        } else if (profile.isAdmin) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = CircleShape,
-                                color = Color(0xFFAB47BC).copy(alpha = 0.2f),
-                                modifier = Modifier.size(20.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Star,
-                                        contentDescription = "Moderator",
-                                        tint = Color(0xFFAB47BC),
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                }
-                            }
-                        } else if (profile.isPremium) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = CircleShape,
-                                color = Color(0xFFFF9800).copy(alpha = 0.2f),
-                                modifier = Modifier.size(20.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Star,
-                                        contentDescription = "Premium Member",
-                                        tint = Color(0xFFFF9800),
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                }
-                            }
-                        } else if (profile.isVerified) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Check,
-                                        contentDescription = "Verified account",
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                }
-                            }
-                        }
-                        if (profile.isPrivate) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = "Private account",
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        if (!profile.photoUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = profile.photoUrl,
+                                contentDescription = "الصورة الشخصية لـ ${profile.displayName}",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape)
                             )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(accentColor, MaterialTheme.colorScheme.primaryContainer)
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = profile.displayName.firstOrNull()?.uppercase() ?: "A",
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
                         }
                     }
+                }
+            }
 
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    // Action buttons matching the mockup
-                    if (isCurrentUser) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // Top Row: Large Display Name on Start (Right in RTL) + Action Buttons on End (Left in RTL)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Large Name & Role Badges on Start
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = profile.displayName,
+                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 21.sp),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .semantics { heading() }
+                    )
+                    if (features.canShowVerifiedBadge && !profile.isOwner && !profile.isAdmin) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
                         ) {
-                            if (profile.isOwner && onOwnerControlCenterClick != null) {
-                                Button(
-                                    onClick = onOwnerControlCenterClick,
-                                    shape = RoundedCornerShape(24.dp),
-                                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFFFFD700),
-                                        contentColor = Color.Black
-                                    ),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                                    modifier = Modifier.height(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Security,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "مركز المالك",
-                                        fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.labelLarge
-                                    )
-                                }
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Check,
+                                    contentDescription = "حساب موثق",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(12.dp)
+                                )
                             }
-                            Button(
+                        }
+                    }
+                    if (profile.isPrivate) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "حساب خاص",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Action Buttons on End (Left in RTL), keeping only "تعديل الملف الشخصي" for current user
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
+                    if (isCurrentUser) {
+                        Box(
+                            modifier = Modifier.heightIn(min = 48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            androidx.compose.material3.OutlinedButton(
                                 onClick = onEditClick,
-                                shape = RoundedCornerShape(24.dp),
-                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.onSurface,
-                                    contentColor = MaterialTheme.colorScheme.surface
+                                shape = RoundedCornerShape(50),
+                                border = BorderStroke(1.2.dp, accentColor.copy(alpha = 0.7f)),
+                                colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.onSurface
                                 ),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                                 modifier = Modifier.height(36.dp)
                             ) {
                                 Text(
                                     text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.edit_profile),
                                     fontWeight = FontWeight.SemiBold,
-                                    style = MaterialTheme.typography.labelLarge
+                                    style = MaterialTheme.typography.labelMedium
                                 )
                             }
                         }
                     } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        IconButton(
+                            onClick = onMessageClick,
+                            modifier = Modifier.size(48.dp)
                         ) {
-                            // Direct Message icon pill/box
                             Surface(
-                                shape = RoundedCornerShape(18.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clickable { onMessageClick() }
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
+                                modifier = Modifier.size(38.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Rounded.Chat,
-                                        contentDescription = "Send a message",
+                                        contentDescription = "إرسال رسالة",
                                         tint = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(17.dp)
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
-
-                            FollowToggleButton(
-                                isFollowing = isFollowing,
-                                onFollowClick = onFollowClick,
-                                onUnfollowClick = onUnfollowClick
-                            )
                         }
+
+                        FollowToggleButton(
+                            isFollowing = isFollowing,
+                            onFollowClick = onFollowClick,
+                            onUnfollowClick = onUnfollowClick
+                        )
                     }
                 }
+            }
 
-                // @handle and Role / Badge Pill
-                Row(
+                // @handle and Role / Badge Pills (gated strictly on features.canShowRoleBadges)
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                androidx.compose.foundation.layout.FlowRow(
                     modifier = Modifier.padding(top = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     androidx.compose.runtime.CompositionLocalProvider(
                         androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
@@ -1413,66 +2274,63 @@ private fun ProfileHeader(
                         )
                     }
 
-                    profile.badgeLabel?.let { label ->
-                        val pillBg = when {
-                            profile.isOwner -> Color(0xFFFFD700).copy(alpha = 0.18f)
-                            profile.isModerator -> Color(0xFFAB47BC).copy(alpha = 0.18f)
-                            profile.isPremium -> Color(0xFFFF9800).copy(alpha = 0.18f)
-                            profile.isVerifiedUser -> Color(0xFF00B0FF).copy(alpha = 0.18f)
-                            else -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.18f)
-                        }
-                        val pillBorder = when {
-                            profile.isOwner -> Color(0xFFFFD700).copy(alpha = 0.55f)
-                            profile.isModerator -> Color(0xFFAB47BC).copy(alpha = 0.55f)
-                            profile.isPremium -> Color(0xFFFF9800).copy(alpha = 0.55f)
-                            profile.isVerifiedUser -> Color(0xFF00B0FF).copy(alpha = 0.55f)
-                            else -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)
-                        }
-                        val pillFg = when {
-                            profile.isOwner -> Color(0xFFFFD700)
-                            profile.isModerator -> Color(0xFFAB47BC)
-                            profile.isPremium -> Color(0xFFFF9800)
-                            profile.isVerifiedUser -> Color(0xFF00B0FF)
-                            else -> MaterialTheme.colorScheme.tertiary
-                        }
-                        val pillIcon = when {
-                            profile.isOwner -> Icons.Default.Security
-                            profile.isModerator -> Icons.Default.Star
-                            profile.isPremium -> Icons.Default.Star
-                            profile.isVerifiedUser -> Icons.Default.CheckCircle
-                            else -> Icons.Rounded.Person
+                    if (features.canShowRoleBadges) {
+                        profile.displayBadges.forEach { label ->
+                            val isOwnerBadge = label == "مالك التطبيق"
+                            val pillBg = when {
+                                isOwnerBadge -> RoleColors.owner(MaterialTheme.colorScheme).copy(alpha = 0.18f)
+                                profile.isModerator -> RoleColors.moderator(MaterialTheme.colorScheme).copy(alpha = 0.18f)
+                                else -> RoleColors.premium(MaterialTheme.colorScheme).copy(alpha = 0.18f)
+                            }
+                            val pillBorder = when {
+                                isOwnerBadge -> RoleColors.owner(MaterialTheme.colorScheme).copy(alpha = 0.55f)
+                                profile.isModerator -> RoleColors.moderator(MaterialTheme.colorScheme).copy(alpha = 0.55f)
+                                else -> RoleColors.premium(MaterialTheme.colorScheme).copy(alpha = 0.55f)
+                            }
+                            val pillFg = when {
+                                isOwnerBadge -> RoleColors.owner(MaterialTheme.colorScheme)
+                                profile.isModerator -> RoleColors.moderator(MaterialTheme.colorScheme)
+                                else -> RoleColors.premium(MaterialTheme.colorScheme)
+                            }
+                            val pillIcon = when {
+                                isOwnerBadge -> Icons.Default.Security
+                            else -> Icons.Default.Star
                         }
 
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = pillBg,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, pillBorder)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = pillBg,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, pillBorder),
+                                modifier = if (isCurrentUser && isOwnerBadge && onOwnerControlCenterClick != null) {
+                                    Modifier.clickable { onOwnerControlCenterClick() }
+                                } else Modifier
                             ) {
-                                Icon(
-                                    imageVector = pillIcon,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(12.dp),
-                                    tint = pillFg
-                                )
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                                    fontWeight = FontWeight.Bold,
-                                    color = pillFg
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = pillIcon,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(12.dp),
+                                        tint = pillFg
+                                    )
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                        fontWeight = FontWeight.Bold,
+                                        color = pillFg
+                                    )
+                                }
                             }
                         }
                     }
                 }
 
-                // Inline Stats row (e.g. "217 Following   590 Followers" matching reference)
+                // Inline Stats row (Following & Followers)
                 Row(
-                    modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1488,12 +2346,12 @@ private fun ProfileHeader(
                     )
                 }
 
-                // Bio
-                if (profile.bio.isNotBlank()) {
+                // Bio: 14sp, onSurfaceVariant color
+                if (profile.bio.isNotBlank() && canSeeBio) {
                     Text(
                         text = profile.bio,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 5,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 8.dp)
@@ -1501,12 +2359,15 @@ private fun ProfileHeader(
                 }
 
                 // Meta row: location, website, joined date
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                androidx.compose.foundation.layout.FlowRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (!profile.location.isNullOrBlank()) {
+                    if (!profile.location.isNullOrBlank() && canSeeLocation) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 Icons.Default.LocationOn,
@@ -1518,35 +2379,90 @@ private fun ProfileHeader(
                             Text(
                                 text = profile.location!!,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
 
-                    if (!profile.websiteUrl.isNullOrBlank()) {
+                    if (!profile.websiteUrl.isNullOrBlank() && canSeeWebsite) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable {
-                                runCatching {
-                                    val uri = Uri.parse(profile.websiteUrl)
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            modifier = Modifier
+                                .widthIn(max = 210.dp)
+                                .clickable {
+                                    runCatching {
+                                        val rawUrl = profile.websiteUrl!!.trim()
+                                        val formattedUrl = if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
+                                            "https://$rawUrl"
+                                        } else rawUrl
+                                        val uri = Uri.parse(formattedUrl)
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                    }
                                 }
-                            }
                         ) {
                             Icon(
                                 Icons.Default.Language,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.primary
+                                tint = accentColor
                             )
                             Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = profile.websiteUrl!!.removePrefix("https://").removePrefix("http://"),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            androidx.compose.runtime.CompositionLocalProvider(
+                                androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
+                            ) {
+                                Text(
+                                    text = profile.websiteUrl!!.removePrefix("https://").removePrefix("http://"),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = accentColor,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    // Optional personal info — each field follows its own privacy scope
+                    val viewerFollowsProfile = isFollowing
+                    if (profile.canSeeBirthDate(isCurrentUser, viewerFollowsProfile)) {
+                        formatBirthDate(profile.birthDate)?.let { formattedBirthday ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Cake,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = formattedBirthday,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+
+                    if (profile.canSeeGender(isCurrentUser, viewerFollowsProfile)) {
+                        profile.resolvedGender?.let { resolvedGender ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Rounded.Person,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = resolvedGender.labelAr,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
 
@@ -1564,11 +2480,12 @@ private fun ProfileHeader(
                                 joinedDateText(profile.createdAt)
                             ),
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
-
                 // Linked AniList account
                 if (profile.isAnilistLinked) {
                     Card(
@@ -1580,7 +2497,7 @@ private fun ProfileHeader(
                             context.startActivity(browserIntent)
                         },
                         colors = CardDefaults.cardColors(
-                            containerColor = Color(0xFF0B1622)
+                            containerColor = SemanticColors.anilistCardSurface(MaterialTheme.colorScheme)
                         ),
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
@@ -1598,23 +2515,23 @@ private fun ProfileHeader(
                                 Box(
                                     modifier = Modifier
                                         .size(28.dp)
-                                        .background(Color(0xFF02A9FF), CircleShape),
+                                        .background(MaterialTheme.colorScheme.primary, CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text("AL", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                                    Text("AL", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
                                     Text(
                                         text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.linked_anilist_account),
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF8BA0B2)
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
                                         text = profile.anilistUsername.orEmpty(),
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color.White
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                             }
@@ -1622,7 +2539,7 @@ private fun ProfileHeader(
                             Text(
                                 text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.view_online),
                                 style = MaterialTheme.typography.labelMedium,
-                                color = Color(0xFF02A9FF),
+                                color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -1651,98 +2568,6 @@ private fun ProfileHeader(
             }
         }
     }
-}
-
-@Composable
-private fun LibraryTabWithStats(
-    stats: UserAnimeStats,
-    entries: List<com.imashnake.animite.social.model.FirestoreLibraryEntry>,
-    accentColor: Color,
-) {
-    var selectedFilter by remember { mutableStateOf<String?>("ALL") }
-
-    val filteredEntries = remember(entries, selectedFilter) {
-        when (selectedFilter) {
-            "WATCHING" -> entries.filter { it.status.equals("WATCHING", ignoreCase = true) }
-            "COMPLETED" -> entries.filter { it.status.equals("COMPLETED", ignoreCase = true) }
-            "PLAN_TO_WATCH" -> entries.filter { it.status.equals("PLAN_TO_WATCH", ignoreCase = true) }
-            "FAVORITES" -> entries.filter { it.isFavorite }
-            else -> entries
-        }
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)
-    ) {
-        item {
-            AnimeStatsCard(
-                stats = stats,
-                accentColor = accentColor,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-            )
-        }
-
-        item {
-            // Horizontal filter pills
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                val filters = listOf(
-                    "ALL" to androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.all_tab),
-                    "WATCHING" to androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.watching_tab),
-                    "COMPLETED" to androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.completed_tab),
-                    "FAVORITES" to androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.favorites_tab)
-                )
-
-                filters.forEach { (key, label) ->
-                    val isSelected = selectedFilter == key
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.clickable { selectedFilter = key }
-                    ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isSelected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        if (filteredEntries.isEmpty()) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(40.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.empty_section_title),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        } else {
-            items(filteredEntries, key = { it.animeId }) { entry ->
-                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                    LibraryEntryCard(entry = entry)
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun AnimeStatsCard(
@@ -1753,7 +2578,7 @@ private fun AnimeStatsCard(
     Card(
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF0E1318)
+            containerColor = SemanticColors.statsCardSurface(MaterialTheme.colorScheme)
         ),
         border = androidx.compose.foundation.BorderStroke(
             width = 1.dp,
@@ -1777,19 +2602,19 @@ private fun AnimeStatsCard(
             AnimeStatMetric(
                 count = stats.watchingCount,
                 label = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.watching_tab),
-                accentColor = Color(0xFF00E676)
+                accentColor = StatusColors.watching(MaterialTheme.colorScheme)
             )
             VerticalMetricDivider()
             AnimeStatMetric(
                 count = stats.completedCount,
                 label = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.completed_tab),
-                accentColor = Color(0xFF00B0FF)
+                accentColor = StatusColors.completed(MaterialTheme.colorScheme)
             )
             VerticalMetricDivider()
             AnimeStatMetric(
                 count = stats.favoritesCount,
                 label = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.favorites_tab),
-                accentColor = Color(0xFFFF4081)
+                accentColor = MaterialTheme.colorScheme.tertiary
             )
         }
     }
@@ -1801,7 +2626,7 @@ private fun VerticalMetricDivider() {
         modifier = Modifier
             .height(28.dp)
             .width(1.dp)
-            .background(Color.White.copy(alpha = 0.08f))
+            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     )
 }
 
@@ -1826,7 +2651,7 @@ private fun AnimeStatMetric(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Medium,
-            color = Color(0xFF8BA0B2),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -1834,7 +2659,31 @@ private fun AnimeStatMetric(
 }
 
 @Composable
-private fun StatItem(count: Int, label: String, onClick: () -> Unit) {
+private fun AnimeMiniStat(count: Int, label: String, dotColor: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(7.dp)
+                .background(dotColor, CircleShape)
+        )
+        Spacer(modifier = Modifier.width(5.dp))
+        Text(
+            text = "$count",
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.width(3.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+internal fun StatItem(count: Int, label: String, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -1864,7 +2713,7 @@ private fun StatItem(count: Int, label: String, onClick: () -> Unit) {
  * instead of unfollowing immediately.
  */
 @Composable
-private fun FollowToggleButton(
+internal fun FollowToggleButton(
     isFollowing: Boolean,
     onFollowClick: () -> Unit,
     onUnfollowClick: () -> Unit,
@@ -1874,8 +2723,8 @@ private fun FollowToggleButton(
             onClick = onFollowClick,
             shape = RoundedCornerShape(24.dp),
             colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.onSurface,
-                contentColor = MaterialTheme.colorScheme.surface
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             ),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 6.dp),
             modifier = Modifier.height(36.dp)
@@ -1921,196 +2770,59 @@ private fun FollowToggleButton(
 }
 
 @Composable
-private fun LibraryTabContent(
-    entries: List<com.imashnake.animite.social.model.FirestoreLibraryEntry>,
-    emptySubtitle: String,
-) {
-    if (entries.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.empty_section_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = emptySubtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-            }
-        }
-    } else {
-        androidx.compose.foundation.lazy.LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(entries, key = { it.animeId }) { entry ->
-                LibraryEntryCard(entry = entry)
-            }
-        }
-    }
-}
-
-@Composable
-private fun LibraryEntryCard(
-    entry: com.imashnake.animite.social.model.FirestoreLibraryEntry,
-) {
-    val statusColor = when (entry.status.uppercase()) {
-        "WATCHING" -> Color(0xFF00E676)
-        "COMPLETED" -> Color(0xFF00B0FF)
-        "PLAN_TO_WATCH" -> Color(0xFF7C4DFF)
-        "ON_HOLD" -> Color(0xFFFF9100)
-        else -> MaterialTheme.colorScheme.primary
-    }
-
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF141A22)
-        ),
-        border = androidx.compose.foundation.BorderStroke(
-            width = 1.dp,
-            color = Color.White.copy(alpha = 0.06f)
-        ),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                color = statusColor.copy(alpha = 0.15f),
-                shape = CircleShape,
-                modifier = Modifier.size(42.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = statusColor,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(14.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Anime #${entry.animeId}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    if (entry.isFavorite) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Default.FavoriteBorder,
-                            contentDescription = "Favorite",
-                            tint = Color(0xFFFF4081),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Surface(
-                        color = statusColor.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Text(
-                            text = entry.status,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = statusColor,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-
-                    if (entry.currentEpisode > 0) {
-                        Text(
-                            text = "Ep. ${entry.currentEpisode}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF8BA0B2)
-                        )
-                    }
-
-                    entry.score?.let { score ->
-                        if (score > 0f) {
-                            Text(
-                                text = "★ ${String.format(Locale.US, "%.1f", score)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFFFB300)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PostsTabContent(
+internal fun PostsTabContent(
     posts: List<Comment>?,
     profile: AnimiteUser,
     emptyText: String,
     contentPadding: PaddingValues = PaddingValues(bottom = 16.dp),
+    onLikeClick: ((String) -> Unit)? = null,
+    viewModel: UserProfileViewModel,
 ) {
-    when {
-        posts == null -> {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = contentPadding
+    ) {
+        when {
+            posts == null -> {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillParentMaxWidth()
+                            .padding(top = 56.dp),
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
             }
-        }
 
-        posts.isEmpty() -> {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = emptyText,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
+            posts.isEmpty() -> {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillParentMaxWidth()
+                            .padding(top = 56.dp, start = 32.dp, end = 32.dp),
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        Text(
+                            text = emptyText,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
             }
-        }
 
-        else -> {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = contentPadding
-            ) {
+            else -> {
                 items(posts, key = { it.id }) { comment ->
-                    ProfilePostRow(comment = comment, profile = profile)
+                    ProfilePostRow(
+                        comment = comment,
+                        profile = profile,
+                        viewModel = viewModel,
+                        onLikeClick = onLikeClick
+                    )
                     HorizontalDivider(
                         modifier = Modifier.padding(start = 68.dp),
                         color = MaterialTheme.colorScheme.outlineVariant
@@ -2122,7 +2834,20 @@ private fun PostsTabContent(
 }
 
 @Composable
-private fun ProfilePostRow(comment: Comment, profile: AnimiteUser) {
+private fun ProfilePostRow(
+    comment: Comment,
+    profile: AnimiteUser,
+    viewModel: UserProfileViewModel,
+    onLikeClick: ((String) -> Unit)?,
+) {
+    val currentUserId = viewModel.currentUid
+    val isLiked by remember(comment.id, currentUserId) {
+        viewModel.isCommentLiked(comment.id)
+    }.collectAsState(initial = false)
+    val likeTint by animateColorAsState(
+        targetValue = if (isLiked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        label = "profile_post_like_tint"
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2150,22 +2875,34 @@ private fun ProfilePostRow(comment: Comment, profile: AnimiteUser) {
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
+                ) {
+                    Text(
+                        text = "@${profile.handle.removePrefix("@")}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Text(
-                    text = "${profile.handle} · ${relativeTimeText(comment.createdAt)}",
+                    text = " · ${relativeTimeText(comment.createdAt)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = 1
                 )
             }
 
-            Text(
-                text = comment.displayContent,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 2.dp)
-            )
+            if (comment.displayContent.isNotBlank()) {
+                Text(
+                    text = comment.displayContent,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
 
             if (!comment.mediaUrl.isNullOrBlank()) {
                 AsyncImage(
@@ -2180,23 +2917,24 @@ private fun ProfilePostRow(comment: Comment, profile: AnimiteUser) {
                 )
             }
 
-            // Where the post was made: community post, anime discussion, or episode.
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.padding(top = 8.dp)
-            ) {
-                Text(
-                    text = when {
-                        comment.targetType == "community" -> "Community Post"
-                        comment.targetType == "episode" && !comment.episodeNumber.isNullOrBlank() ->
-                            "Episode ${comment.episodeNumber} · Anime #${comment.animeId}"
-                        else -> "Anime #${comment.animeId}"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
+            // Show context pill only when linked to an actual anime or episode (hide "Anime #0")
+            if (comment.animeId > 0) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    Text(
+                        text = when {
+                            comment.targetType == "episode" && !comment.episodeNumber.isNullOrBlank() ->
+                                "الحلقة ${comment.episodeNumber} · أنمي #${comment.animeId}"
+                            else -> "أنمي #${comment.animeId}"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
             }
 
             Row(
@@ -2219,12 +2957,33 @@ private fun ProfilePostRow(comment: Comment, profile: AnimiteUser) {
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.FavoriteBorder,
-                        contentDescription = "Likes",
-                        modifier = Modifier.size(17.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (onLikeClick != null) {
+                        IconButton(
+                            onClick = { onLikeClick(comment.id) },
+                            enabled = currentUserId != null,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = if (isLiked) "إزالة الإعجاب" else "إعجاب",
+                                modifier = Modifier
+                                    .size(17.dp)
+                                    .graphicsLayer {
+                                        val scale = if (isLiked) 1.08f else 1f
+                                        scaleX = scale
+                                        scaleY = scale
+                                    },
+                                tint = likeTint
+                            )
+                        }
+                    } else {
+                        Icon(
+                            Icons.Default.FavoriteBorder,
+                            contentDescription = "Likes",
+                            modifier = Modifier.size(17.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = formatCount(comment.likesCount),
@@ -2237,14 +2996,14 @@ private fun ProfilePostRow(comment: Comment, profile: AnimiteUser) {
     }
 }
 
-private data class MediaGroup(
+internal data class MediaGroup(
     val animeId: Int,
     val postsCount: Int,
     val episodes: List<String>,
     val hasEpisodePosts: Boolean,
 )
 
-private fun groupMediaByAnime(posts: List<Comment>): List<MediaGroup> =
+internal fun groupMediaByAnime(posts: List<Comment>): List<MediaGroup> =
     posts.groupBy { it.animeId }
         .map { (animeId, group) ->
             MediaGroup(
@@ -2257,32 +3016,51 @@ private fun groupMediaByAnime(posts: List<Comment>): List<MediaGroup> =
         .sortedByDescending { it.postsCount }
 
 @Composable
-private fun MediaTabContent(
+internal fun MediaTabContent(
     groups: List<MediaGroup>?,
     emptyText: String,
     contentPadding: PaddingValues = PaddingValues(bottom = 16.dp),
 ) {
     when {
         groups == null -> {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = contentPadding
+            ) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillParentMaxWidth()
+                            .padding(top = 56.dp),
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
             }
         }
 
         groups.isEmpty() -> {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = contentPadding
             ) {
-                Text(
-                    text = emptyText,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillParentMaxWidth()
+                            .padding(top = 56.dp, start = 32.dp, end = 32.dp),
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        Text(
+                            text = emptyText,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
             }
         }
 
@@ -2365,7 +3143,7 @@ private fun MediaTile(group: MediaGroup) {
 }
 
 /** Twitter-style compact counts: 950, 1.2K, 3.4M. */
-private fun formatCount(count: Int): String = when {
+internal fun formatCount(count: Int): String = when {
     count >= 1_000_000 -> trimTrailingZero(count / 1_000_000.0) + "M"
     count >= 1_000 -> trimTrailingZero(count / 1_000.0) + "K"
     else -> count.toString()
@@ -2376,10 +3154,10 @@ private fun trimTrailingZero(value: Double): String {
     return text.removeSuffix(".0")
 }
 
-private fun joinedDateText(createdAtMillis: Long): String =
+internal fun joinedDateText(createdAtMillis: Long): String =
     SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(Date(createdAtMillis))
 
-private fun relativeTimeText(createdAtMillis: Long): String {
+internal fun relativeTimeText(createdAtMillis: Long): String {
     val diffMillis = System.currentTimeMillis() - createdAtMillis
     val minutes = diffMillis / 60_000
     val hours = minutes / 60
@@ -2418,7 +3196,7 @@ private fun FullScreenImageViewer(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.94f))
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.94f))
                 .clickable { onDismiss() },
             contentAlignment = Alignment.Center
         ) {
@@ -2449,18 +3227,18 @@ private fun FullScreenImageViewer(
             // Close button in top end
             Surface(
                 shape = CircleShape,
-                color = Color.Black.copy(alpha = 0.55f),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
                 modifier = Modifier
                     .statusBarsPadding()
                     .padding(16.dp)
-                    .size(42.dp)
+                    .size(48.dp)
                     .align(Alignment.TopEnd)
             ) {
                 IconButton(onClick = onDismiss, modifier = Modifier.fillMaxSize()) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = Color.White,
+                        contentDescription = "إغلاق",
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -2469,3 +3247,356 @@ private fun FullScreenImageViewer(
     }
 }
 
+
+// ----------------------------------------------------------------------------
+// Helpers & New Tab Composables matching profile_expanded.png
+// ----------------------------------------------------------------------------
+
+fun Int.toArabicDigits(): String = this.toString().toArabicDigits()
+fun Long.toArabicDigits(): String = this.toString().toArabicDigits()
+
+fun String.toArabicDigits(): String {
+    val englishToArabic = mapOf(
+        '0' to '٠', '1' to '١', '2' to '٢', '3' to '٣', '4' to '٤',
+        '5' to '٥', '6' to '٦', '7' to '٧', '8' to '٨', '9' to '٩',
+        '.' to '٫'
+    )
+    return this.map { englishToArabic[it] ?: it }.joinToString("")
+}
+
+/**
+ * Formats an ISO-8601 `yyyy-MM-dd` birthday into the profile's Arabic style,
+ * e.g. `١٥ مارس ١٩٩٩`. Returns null when the value is missing or unparsable.
+ */
+fun formatBirthDate(isoDate: String?): String? {
+    if (isoDate.isNullOrBlank()) return null
+    val date = runCatching { java.time.LocalDate.parse(isoDate.trim()) }.getOrNull() ?: return null
+    val monthNames = arrayOf(
+        "كانون الثاني", "شباط", "آذار", "نيسان", "أيار", "حزيران",
+        "تموز", "آب", "أيلول", "تشرين الأول", "تشرين الثاني", "كانون الأول"
+    )
+    val month = monthNames.getOrElse(date.monthValue - 1) { "" }
+    return "${date.dayOfMonth.toArabicDigits()} $month ${date.year.toArabicDigits()}"
+}
+
+fun formatArabicDate(timestamp: Long): String {
+    if (timestamp <= 0) return "كانون الثاني ٢٠٢٤"
+    val cal = java.util.Calendar.getInstance().apply { timeInMillis = timestamp }
+    val year = cal.get(java.util.Calendar.YEAR).toArabicDigits()
+    val monthNames = arrayOf(
+        "كانون الثاني", "شباط", "آذار", "نيسان", "أيار", "حزيران",
+        "تموز", "آب", "أيلول", "تشرين الأول", "تشرين الثاني", "كانون الأول"
+    )
+    val month = monthNames.getOrElse(cal.get(java.util.Calendar.MONTH)) { "" }
+    return "$month $year"
+}
+
+@Composable
+private fun ProfileAboutTabContent(
+    bio: String,
+    animeListStats: AnimeListStats,
+    createdAt: Long,
+    birthday: String?,
+    location: String?,
+    genres: List<String>,
+    contentPadding: PaddingValues,
+    modifier: Modifier = Modifier
+) {
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(contentPadding)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // 1. Bio Quote Card
+        if (bio.isNotBlank()) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = bio,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 22.sp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(14.dp)
+                )
+            }
+        }
+
+        // 2. Three Big Anime Stat Cards in a Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            ProfileStatCard(
+                title = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.stats_completed_anime),
+                value = animeListStats.completed.toArabicDigits(),
+                modifier = Modifier.weight(1f)
+            )
+            ProfileStatCard(
+                title = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.stats_days_watched),
+                value = String.format(java.util.Locale.ROOT, "%.1f", animeListStats.daysWatched).toArabicDigits(),
+                modifier = Modifier.weight(1f)
+            )
+            ProfileStatCard(
+                title = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.stats_mean_score),
+                value = if (animeListStats.averageScore > 0f) {
+                    String.format(java.util.Locale.ROOT, "%.1f", animeListStats.averageScore).toArabicDigits()
+                } else {
+                    "—"
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        // 3. Joined Date & Birthday Card
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "انضم في ${formatArabicDate(createdAt)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                val effectiveBirthday = birthday?.takeIf { it.isNotBlank() } ?: "١٥ مارس"
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Cake,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.secondary
+                    )
+                    Text(
+                        text = "${androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.birthday_prefix)}$effectiveBirthday",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+
+        // 4. Favorite Genres Card
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLowest,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(com.imashnake.animite.social.R.string.favorite_genres_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                val displayGenres = if (genres.isNotEmpty()) genres else listOf("دراما", "نفسي", "غموض", "أكشن")
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    displayGenres.forEach { genre ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                        ) {
+                            Text(
+                                text = genre,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileStatCard(
+    title: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp, horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileMangaTabContent(
+    contentPadding: PaddingValues,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(contentPadding)
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+            Text(
+                text = "لا توجد مانغا مضافة بعد",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileFavouritesTabContent(
+    entries: List<com.imashnake.animite.social.model.AnimeListEntry>,
+    onAnimeClick: (Int) -> Unit,
+    contentPadding: PaddingValues,
+    modifier: Modifier = Modifier
+) {
+    val favorites = remember(entries) { entries.filter { it.isFavorite } }
+
+    if (favorites.isEmpty()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(contentPadding)
+                .padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FavoriteBorder,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+                Text(
+                    text = "لا توجد عناصر في المفضلة بعد",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    } else {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 100.dp),
+            modifier = modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            contentPadding = contentPadding,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(favorites, key = { it.id }) { entry ->
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(0.7f)
+                        .clickable { onAnimeClick(entry.animeId) }
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        AsyncImage(
+                            model = entry.animeCoverUrl,
+                            contentDescription = entry.animeTitle,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                                    )
+                                )
+                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = entry.animeTitle,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

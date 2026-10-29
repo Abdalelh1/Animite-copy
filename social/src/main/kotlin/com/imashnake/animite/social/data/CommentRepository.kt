@@ -9,6 +9,7 @@ import com.imashnake.animite.social.model.SocialNotification
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -65,6 +66,41 @@ class CommentRepository @Inject constructor(
     /**
      * The author's own comments and posts, newest first.
      */
+    fun getLikedCommentsByUser(userId: String, limit: Long = 50): Flow<List<Comment>> = callbackFlow {
+        if (userId.isBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+        val query = firestore.collectionGroup("likes")
+            .whereEqualTo("userId", userId)
+            .orderBy("likedAt", Query.Direction.DESCENDING)
+            .limit(limit)
+
+        var loadJob: kotlinx.coroutines.Job? = null
+        val registration = query.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                trySend(emptyList())
+                return@addSnapshotListener
+            }
+            loadJob?.cancel()
+            loadJob = launch {
+                val likedComments = snapshot?.documents.orEmpty().mapNotNull { like ->
+                    val commentRef = like.reference.parent.parent ?: return@mapNotNull null
+                    if (commentRef.parent.id != "comments") return@mapNotNull null
+                    runCatching {
+                        commentRef.get().await().toObject(Comment::class.java)?.copy(id = commentRef.id)
+                    }.getOrNull()
+                }
+                trySend(likedComments)
+            }
+        }
+        awaitClose {
+            registration.remove()
+            loadJob?.cancel()
+        }
+    }
+
     fun getCommentsByUser(authorId: String, limit: Long = 50): Flow<List<Comment>> = callbackFlow {
         if (authorId.isBlank()) {
             trySend(emptyList())
@@ -283,7 +319,7 @@ class CommentRepository @Inject constructor(
             batch.commit().await()
             false
         } else {
-            batch.set(likeRef, mapOf("likedAt" to System.currentTimeMillis()))
+            batch.set(likeRef, mapOf("userId" to user.uid, "likedAt" to System.currentTimeMillis()))
             batch.update(commentRef, "likesCount", FieldValue.increment(1))
             batch.commit().await()
 

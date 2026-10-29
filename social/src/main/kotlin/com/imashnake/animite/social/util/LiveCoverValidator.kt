@@ -14,11 +14,11 @@ import java.io.FileOutputStream
  */
 object LiveCoverValidator {
     const val MAX_GIF_SIZE_BYTES: Long = 10 * 1024 * 1024 // 10 MB
-    const val MAX_VIDEO_SIZE_BYTES: Long = 25 * 1024 * 1024 // 25 MB
+    const val MAX_VIDEO_SIZE_BYTES: Long = 40 * 1024 * 1024 // 40 MB (supports up to 30 seconds)
 
     const val MIN_DURATION_SECONDS = 2
-    const val MAX_DURATION_STANDARD_SECONDS = 10
-    const val MAX_DURATION_PREMIUM_SECONDS = 15
+    const val MAX_DURATION_STANDARD_SECONDS = 30
+    const val MAX_DURATION_PREMIUM_SECONDS = 30
 
     sealed interface ValidationResult {
         data class Valid(
@@ -45,25 +45,25 @@ object LiveCoverValidator {
             contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
         }.getOrNull() ?: -1L
 
-        val maxAllowedBytes = if (isPremium) 35 * 1024 * 1024L else MAX_VIDEO_SIZE_BYTES
+        val maxAllowedBytes = if (isPremium) 50 * 1024 * 1024L else MAX_VIDEO_SIZE_BYTES
         if (descriptorLength > maxAllowedBytes) {
             val sizeMb = String.format("%.1f", descriptorLength / (1024.0 * 1024.0))
             val limitMb = maxAllowedBytes / (1024 * 1024)
-            return ValidationResult.Invalid("File is too large (${sizeMb} MB). Maximum allowed size is ${limitMb} MB.")
+            return ValidationResult.Invalid("حجم الملف كبير جداً (${sizeMb} ميجابايت). الحد الأقصى المسموح به هو ${limitMb} ميجابايت.")
         }
 
         val bytes = runCatching {
             contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        }.getOrNull() ?: return ValidationResult.Invalid("Unable to read selected media file.")
+        }.getOrNull() ?: return ValidationResult.Invalid("تعذر قراءة ملف الوسائط المحدد.")
 
         if (bytes.isEmpty()) {
-            return ValidationResult.Invalid("Selected file is empty.")
+            return ValidationResult.Invalid("الملف المحدد فارغ.")
         }
 
         if (bytes.size > maxAllowedBytes) {
             val sizeMb = String.format("%.1f", bytes.size / (1024.0 * 1024.0))
             val limitMb = maxAllowedBytes / (1024 * 1024)
-            return ValidationResult.Invalid("File is too large (${sizeMb} MB). Maximum allowed size is ${limitMb} MB.")
+            return ValidationResult.Invalid("حجم الملف كبير جداً (${sizeMb} ميجابايت). الحد الأقصى المسموح به هو ${limitMb} ميجابايت.")
         }
 
         // Detect format via magic bytes
@@ -73,14 +73,14 @@ object LiveCoverValidator {
         if (!isGif && !isMp4) {
             val reportedType = contentResolver.getType(uri).orEmpty()
             return ValidationResult.Invalid(
-                "Unsupported format ($reportedType). Please select an MP4 video or an animated GIF."
+                "صيغة غير مدعومة ($reportedType). يرجى اختيار فيديو MP4 أو صورة متحركة GIF."
             )
         }
 
         if (isGif) {
             if (bytes.size > MAX_GIF_SIZE_BYTES) {
                 val sizeMb = String.format("%.1f", bytes.size / (1024.0 * 1024.0))
-                return ValidationResult.Invalid("GIF is too large (${sizeMb} MB). Maximum allowed GIF size is 10 MB.")
+                return ValidationResult.Invalid("حجم صورة GIF كبير جداً (${sizeMb} ميجابايت). الحد الأقصى المسموح هو 10 ميجابايت.")
             }
             return ValidationResult.Valid(
                 bytes = bytes,
@@ -117,12 +117,11 @@ object LiveCoverValidator {
 
             val maxDuration = if (isPremium) MAX_DURATION_PREMIUM_SECONDS else MAX_DURATION_STANDARD_SECONDS
             if (durationSec < MIN_DURATION_SECONDS) {
-                return ValidationResult.Invalid("Video duration is too short (${String.format("%.1f", durationSec)}s). Minimum duration is $MIN_DURATION_SECONDS seconds.")
+                return ValidationResult.Invalid("مدة الفيديو قصيرة جداً (${String.format("%.1f", durationSec)} ثانية). الحد الأدنى هو $MIN_DURATION_SECONDS ثوانٍ.")
             }
             if (durationSec > maxDuration) {
                 return ValidationResult.Invalid(
-                    "Video duration is too long (${String.format("%.1f", durationSec)}s). Maximum duration is $maxDuration seconds." +
-                        if (!isPremium) " Upgrade to Premium for up to ${MAX_DURATION_PREMIUM_SECONDS}s." else ""
+                    "مدة الفيديو طويلة جداً (${String.format("%.1f", durationSec)} ثانية). الحد الأقصى المسموح به هو $maxDuration ثانية."
                 )
             }
 
@@ -149,7 +148,7 @@ object LiveCoverValidator {
                 height = height,
             )
         } catch (e: Exception) {
-            ValidationResult.Invalid("Unable to process video: ${e.localizedMessage ?: "Unknown media error"}")
+            ValidationResult.Invalid("تعذر معالجة الفيديو: ${e.localizedMessage ?: "خطأ في ملف الوسائط"}")
         } finally {
             runCatching { retriever.release() }
             tempFile?.delete()

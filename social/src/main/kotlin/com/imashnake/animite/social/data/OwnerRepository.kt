@@ -83,7 +83,7 @@ class OwnerRepository @Inject constructor(
                 trySend(emptyList())
                 return@addSnapshotListener
             }
-            val users = snapshot?.documents?.mapNotNull { it.toObject(AnimiteUser::class.java) }.orEmpty()
+            val users = snapshot?.documents?.mapNotNull { it.toObject(AnimiteUser::class.java)?.withResolvedAuthority() }.orEmpty()
             trySend(users)
         }
         awaitClose { reg.remove() }
@@ -109,7 +109,7 @@ class OwnerRepository @Inject constructor(
                 trySend(emptyList())
                 return@addSnapshotListener
             }
-            val users = snapshot?.documents?.mapNotNull { it.toObject(AnimiteUser::class.java) }.orEmpty()
+            val users = snapshot?.documents?.mapNotNull { it.toObject(AnimiteUser::class.java)?.withResolvedAuthority() }.orEmpty()
             trySend(users)
         }
         awaitClose { reg.remove() }

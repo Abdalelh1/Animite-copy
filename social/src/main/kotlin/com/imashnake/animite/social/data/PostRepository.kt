@@ -10,6 +10,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -21,6 +22,7 @@ class PostRepository @Inject constructor(
     companion object {
         private const val POSTS_COLLECTION = "posts"
         private const val LIKES_COLLECTION = "likes"
+        private const val SETTINGS_TIMEOUT_MS = 5_000L
     }
 
     private fun postDoc(postId: String) =
@@ -30,7 +32,10 @@ class PostRepository @Inject constructor(
         postDoc(postId).collection(LIKES_COLLECTION)
 
     /**
-     * Real-time stream of community posts, newest first.
+     * Real-time stream of community posts, newest first (soft-deleted posts are hidden).
+     *
+     * Listener failures (permission denied, offline, ...) are propagated as a flow error so the
+     * UI can show them and offer a retry instead of silently rendering an empty feed.
      */
     fun getFeedPosts(limit: Long = 40): Flow<List<Post>> = callbackFlow {
         val query = firestore.collection(POSTS_COLLECTION)
@@ -39,12 +44,12 @@ class PostRepository @Inject constructor(
 
         val registration = query.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                trySend(emptyList())
+                close(error)
                 return@addSnapshotListener
             }
             val list = snapshot?.documents?.mapNotNull { doc ->
-                doc.toObject(Post::class.java)?.copy(id = doc.id)
-            }.orEmpty()
+                runCatching { doc.toObject(Post::class.java)?.copy(id = doc.id) }.getOrNull()
+            }.orEmpty().filterNot { it.isDeleted }
             trySend(list)
         }
         awaitClose { registration.remove() }
@@ -101,8 +106,14 @@ class PostRepository @Inject constructor(
         require(cleanContent.isNotBlank() || !mediaUrl.isNullOrBlank()) { "Post content or media must not be empty" }
         require(cleanContent.length <= 2000) { "Post exceeds 2000 characters limit" }
 
-        val settingsDoc = firestore.collection("system_settings").document("config").get().await()
-        if (settingsDoc.exists()) {
+        // The settings read is advisory (Firestore rules enforce the same limits server-side),
+        // so a slow/failed read must never prevent the user from posting.
+        val settingsDoc = runCatching {
+            withTimeout(SETTINGS_TIMEOUT_MS) {
+                firestore.collection("system_settings").document("config").get().await()
+            }
+        }.getOrNull()
+        if (settingsDoc != null && settingsDoc.exists()) {
             val isMaintenance = settingsDoc.getBoolean("maintenanceMode") ?: false
             if (isMaintenance && !author.isOwner) {
                 throw IllegalStateException("نظام Animeta في وضع الصيانة حالياً. المنشورات متوقفة.")

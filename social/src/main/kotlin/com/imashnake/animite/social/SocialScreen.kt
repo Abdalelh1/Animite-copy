@@ -65,6 +65,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -101,6 +102,7 @@ import com.imashnake.animite.social.data.PostRepository
 import com.imashnake.animite.social.model.Post
 import com.imashnake.animite.social.ui.comments.CommentsSection
 import com.imashnake.animite.social.util.AvatarValidator
+import com.imashnake.animite.social.util.toSocialErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -108,8 +110,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -137,13 +142,29 @@ class SocialViewModel @Inject constructor(
     val currentUserProfile: StateFlow<AnimiteUser?> = authRepository.authState.flatMapLatest { state ->
         if (state is AuthState.Authenticated) {
             userProfileRepository.getUserProfile(state.user.uid)
+                .map { profile -> profile ?: state.user }
         } else {
             flowOf(null)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(1000), null)
 
-    val feedPosts: StateFlow<List<Post>?> = postRepository.getFeedPosts(limit = 40)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(1000), null)
+    private val feedRefresh = MutableStateFlow(0)
+    private val _feedError = MutableStateFlow<String?>(null)
+    val feedError: StateFlow<String?> = _feedError.asStateFlow()
+
+    val feedPosts: StateFlow<List<Post>?> = feedRefresh.flatMapLatest {
+        _feedError.value = null
+        postRepository.getFeedPosts(limit = 40)
+            .onEach { _feedError.value = null }
+            .catch { error ->
+                _feedError.value = error.toSocialErrorMessage("تعذر تحميل المنشورات")
+                emit(emptyList())
+            }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(1000), null)
+
+    fun retryFeed() {
+        feedRefresh.value += 1
+    }
 
     val unreadNotificationsCount: StateFlow<Int> = authRepository.authState.flatMapLatest { state ->
         if (state is AuthState.Authenticated) {
@@ -189,7 +210,11 @@ class SocialViewModel @Inject constructor(
         mimeType: String?,
         onSuccess: () -> Unit,
     ) {
-        val user = currentUserProfile.value ?: (authState.value as? AuthState.Authenticated)?.user ?: return
+        val user = currentUserProfile.value ?: (authState.value as? AuthState.Authenticated)?.user
+        if (user == null) {
+            _uiMessage.value = "سجّل الدخول أولاً للنشر"
+            return
+        }
         if (content.isBlank() && imageBytes == null) return
         if (_isPublishing.value) return
 
@@ -216,8 +241,12 @@ class SocialViewModel @Inject constructor(
                     _uiMessage.value = "Post published successfully!"
                     onSuccess()
                 }.onFailure {
-                    _uiMessage.value = it.localizedMessage ?: "Failed to publish post"
+                    _uiMessage.value = it.toSocialErrorMessage("Failed to publish post")
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiMessage.value = e.toSocialErrorMessage("Failed to publish post")
             } finally {
                 _isPublishing.value = false
             }
@@ -229,7 +258,7 @@ class SocialViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             postRepository.editPost(postId, newContent, uid)
                 .onSuccess { _uiMessage.value = "Post updated!" }
-                .onFailure { _uiMessage.value = "Failed to update: ${it.localizedMessage}" }
+                .onFailure { _uiMessage.value = "Failed to update: ${it.toSocialErrorMessage("unknown error")}" }
         }
     }
 
@@ -238,7 +267,7 @@ class SocialViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             postRepository.deletePost(postId, user.uid, isModerator = user.isModerator || user.isOwner)
                 .onSuccess { _uiMessage.value = "Post deleted" }
-                .onFailure { _uiMessage.value = "Failed to delete: ${it.localizedMessage}" }
+                .onFailure { _uiMessage.value = "Failed to delete: ${it.toSocialErrorMessage("unknown error")}" }
         }
     }
 
@@ -246,6 +275,7 @@ class SocialViewModel @Inject constructor(
         val user = currentUserProfile.value ?: (authState.value as? AuthState.Authenticated)?.user ?: return
         viewModelScope.launch(Dispatchers.IO) {
             postRepository.toggleLike(postId, user)
+                .onFailure { _uiMessage.value = it.toSocialErrorMessage("Failed to like post") }
         }
     }
 }
@@ -266,6 +296,7 @@ fun SocialScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val feedPosts by viewModel.feedPosts.collectAsState()
+    val feedError by viewModel.feedError.collectAsState()
     val unreadNotifications by viewModel.unreadNotificationsCount.collectAsState()
     val isPublishing by viewModel.isPublishing.collectAsState()
     val uiMessage by viewModel.uiMessage.collectAsState()
@@ -306,6 +337,15 @@ fun SocialScreen(
 
     val totalUnreadMessages = remember(conversations, viewModel.currentUid) {
         conversations.sumOf { it.getUnreadCount(viewModel.currentUid.orEmpty()) }
+    }
+
+    LaunchedEffect(uiMessage) {
+        uiMessage?.let { message ->
+            scope.launch {
+                snackbarHostState.showSnackbar(message)
+            }
+            viewModel.clearUiMessage()
+        }
     }
 
     Scaffold(
@@ -544,7 +584,7 @@ fun SocialScreen(
                                                         .align(Alignment.TopEnd)
                                                         .padding(6.dp)
                                                         .size(28.dp)
-                                                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                                                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), CircleShape)
                                                 ) {
                                                     Icon(Icons.Default.Close, contentDescription = "Remove", tint = Color.White, modifier = Modifier.size(16.dp))
                                                 }
@@ -673,6 +713,36 @@ fun SocialScreen(
                                     }
                                 }
                             }
+                            feedError != null -> {
+                                item {
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.errorContainer
+                                        ),
+                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(20.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                text = feedError.orEmpty(),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                            )
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Button(
+                                                onClick = viewModel::retryFeed,
+                                                shape = RoundedCornerShape(12.dp)
+                                            ) {
+                                                Text("Retry")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             feedPosts.isNullOrEmpty() -> {
                                 item {
                                     Card(
@@ -707,7 +777,9 @@ fun SocialScreen(
                                     CommunityPostCard(
                                         post = post,
                                         currentUserId = viewModel.currentUid,
-                                        isPostLikedFlow = viewModel.postRepository.isPostLiked(post.id, viewModel.currentUid.orEmpty()),
+                                        isPostLikedFlow = remember(post.id, viewModel.currentUid) {
+                                            viewModel.postRepository.isPostLiked(post.id, viewModel.currentUid.orEmpty())
+                                        },
                                         onLikeClick = { viewModel.toggleLike(post.id) },
                                         onCommentsClick = { viewingCommentsPost = post },
                                         onAuthorClick = { onNavigateToUserProfile(post.authorId) },
@@ -1107,7 +1179,7 @@ private fun CommunityPostCard(
                     Icon(
                         imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = "Like",
-                        tint = if (isLiked) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
@@ -1115,7 +1187,7 @@ private fun CommunityPostCard(
                         text = "${post.likesCount}",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = if (isLiked) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isLiked) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (isLiked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 

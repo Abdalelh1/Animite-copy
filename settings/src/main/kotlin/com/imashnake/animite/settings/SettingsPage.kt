@@ -946,11 +946,6 @@ fun SettingsPage(
                         }
                     }
 
-                    // ── مصادر التشغيل ──────────────────────────────────────────────────────
-                    SourcesSettingsSection(
-                        isDarkMode = isDarkMode,
-                        context = context,
-                    )
 
                     Column(verticalArrangement = Arrangement.spacedBy(LocalPaddings.current.medium)) {
                         Text(

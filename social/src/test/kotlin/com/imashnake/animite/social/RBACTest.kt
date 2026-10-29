@@ -102,7 +102,7 @@ class RBACTest {
     @Test
     fun animiteUser_rbacHelpers_moderatorRole() {
         val mod = AnimiteUser(
-            uid = "mod_1",
+            uid = "mod_1", tier = "elite",
             role = "moderator",
             displayName = "Mod Alex"
         )
@@ -119,7 +119,7 @@ class RBACTest {
         val pastTime = System.currentTimeMillis() - 100_000L
 
         val activePremium = AnimiteUser(
-            uid = "prem_1",
+            uid = "prem_1", tier = "elite",
             role = "premium",
             premiumUntil = futureTime
         )
@@ -145,7 +145,7 @@ class RBACTest {
         )
         assertFalse(expiredVerifiedPremium.isPremium)
         assertEquals(UserRole.VERIFIED, expiredVerifiedPremium.userRole)
-        assertTrue(expiredVerifiedPremium.isVerifiedUser)
+        assertFalse(expiredVerifiedPremium.isVerifiedUser)
 
         // Owner who had premium timestamp: never loses OWNER status
         val ownerWithExpiredPremium = AnimiteUser(

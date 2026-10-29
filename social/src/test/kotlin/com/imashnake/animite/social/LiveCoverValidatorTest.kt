@@ -10,10 +10,10 @@ class LiveCoverValidatorTest {
     @Test
     fun maxFileSize_constantsAreConfiguredCorrectly() {
         assertEquals(10 * 1024 * 1024L, LiveCoverValidator.MAX_GIF_SIZE_BYTES)
-        assertEquals(25 * 1024 * 1024L, LiveCoverValidator.MAX_VIDEO_SIZE_BYTES)
+        assertEquals(40 * 1024 * 1024L, LiveCoverValidator.MAX_VIDEO_SIZE_BYTES)
         assertEquals(2, LiveCoverValidator.MIN_DURATION_SECONDS)
-        assertEquals(10, LiveCoverValidator.MAX_DURATION_STANDARD_SECONDS)
-        assertEquals(15, LiveCoverValidator.MAX_DURATION_PREMIUM_SECONDS)
+        assertEquals(30, LiveCoverValidator.MAX_DURATION_STANDARD_SECONDS)
+        assertEquals(30, LiveCoverValidator.MAX_DURATION_PREMIUM_SECONDS)
     }
 
     @Test

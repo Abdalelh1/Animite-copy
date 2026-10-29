@@ -40,7 +40,7 @@ class AuthRepository @Inject constructor(
                         return@addSnapshotListener
                     }
                     if (snapshot != null && snapshot.exists()) {
-                        val user = snapshot.toObject(AnimiteUser::class.java)
+                        val user = snapshot.toObject(AnimiteUser::class.java)?.withResolvedAuthority()
                         if (user != null) {
                             trySend(AuthState.Authenticated(user))
                         } else {
@@ -77,16 +77,21 @@ class AuthRepository @Inject constructor(
     }.getOrDefault(true)
 
     private suspend fun checkRegistrationAllowed() {
-        val settingsDoc = firestore.collection("system_settings").document("config").get().await()
-        if (settingsDoc.exists()) {
-            val isMaintenance = settingsDoc.getBoolean("maintenanceMode") ?: false
-            if (isMaintenance) {
-                throw IllegalStateException("نظام Animeta في وضع الصيانة حالياً. تعذر إنشاء حساب جديد.")
+        runCatching {
+            val settingsDoc = firestore.collection("system_settings").document("config").get().await()
+            if (settingsDoc.exists()) {
+                val isMaintenance = settingsDoc.getBoolean("maintenanceMode") ?: false
+                if (isMaintenance) {
+                    throw IllegalStateException("نظام Animeta في وضع الصيانة حالياً. تعذر إنشاء حساب جديد.")
+                }
+                val allowRegistrations = settingsDoc.getBoolean("allowRegistrations") ?: true
+                if (!allowRegistrations) {
+                    throw IllegalStateException("التسجيل مغلق حالياً بأمر إدارة التطبيق.")
+                }
             }
-            val allowRegistrations = settingsDoc.getBoolean("allowRegistrations") ?: true
-            if (!allowRegistrations) {
-                throw IllegalStateException("التسجيل مغلق حالياً بأمر إدارة التطبيق.")
-            }
+        }.onFailure { e ->
+            if (e is IllegalStateException) throw e
+            // If settings cannot be read (e.g. doc not created yet or offline), do not block user
         }
     }
 
@@ -133,9 +138,29 @@ class AuthRepository @Inject constructor(
     suspend fun signInWithEmail(email: String, pass: String): Result<AnimiteUser> = runCatching {
         val authResult = auth.signInWithEmailAndPassword(email.trim(), pass).await()
         val firebaseUser = checkNotNull(authResult.user) { "Authentication failed" }
-        val doc = firestore.collection("users").document(firebaseUser.uid).get().await()
-        val user = doc.toObject(AnimiteUser::class.java)
-        checkNotNull(user) { "User profile not found in database" }
+        val doc = runCatching {
+            firestore.collection("users").document(firebaseUser.uid).get().await()
+        }.getOrNull()
+
+        var user = if (doc != null && doc.exists()) doc.toObject(AnimiteUser::class.java)?.withResolvedAuthority() else null
+        if (user == null) {
+            val baseName = UsernameUtils.baseUsernameFor(
+                displayName = firebaseUser.displayName,
+                email = firebaseUser.email,
+                uid = firebaseUser.uid,
+            )
+            val fallback = AnimiteUser(
+                uid = firebaseUser.uid,
+                username = baseName,
+                displayName = firebaseUser.displayName.orEmpty().ifBlank { baseName },
+                photoUrl = firebaseUser.photoUrl?.toString(),
+            )
+            runCatching {
+                firestore.collection("users").document(firebaseUser.uid).set(fallback).await()
+            }
+            user = fallback
+        }
+        user
     }
 
     suspend fun signInWithGoogle(idToken: String): Result<AnimiteUser> = runCatching {
@@ -143,19 +168,33 @@ class AuthRepository @Inject constructor(
         val authResult = auth.signInWithCredential(credential).await()
         val firebaseUser = checkNotNull(authResult.user) { "Google sign in failed" }
 
-        val userDoc = firestore.collection("users").document(firebaseUser.uid).get().await()
-        if (userDoc.exists()) {
-            val existing = userDoc.toObject(AnimiteUser::class.java)
-            checkNotNull(existing) { "Failed to parse user profile" }
+        val userDoc = runCatching {
+            firestore.collection("users").document(firebaseUser.uid).get().await()
+        }.getOrNull()
+
+        if (userDoc != null && userDoc.exists()) {
+            val existing = userDoc.toObject(AnimiteUser::class.java)?.withResolvedAuthority()
+            if (existing != null) {
+                existing
+            } else {
+                val fallback = AnimiteUser(
+                    uid = firebaseUser.uid,
+                    username = UsernameUtils.baseUsernameFor(
+                        displayName = firebaseUser.displayName,
+                        email = firebaseUser.email,
+                        uid = firebaseUser.uid,
+                    ),
+                    displayName = firebaseUser.displayName.orEmpty().ifBlank { "User" },
+                    photoUrl = firebaseUser.photoUrl?.toString(),
+                )
+                runCatching {
+                    firestore.collection("users").document(firebaseUser.uid).set(fallback).await()
+                }
+                fallback
+            }
         } else {
             checkRegistrationAllowed()
 
-            // First time Google sign in: generate a safe base username.
-            // The base MUST be sanitised to [a-z0-9_.] first: isUsernameAvailable
-            // returns false for any invalid candidate, so a Google display name
-            // that is Arabic, spaced or too short made the old loop spin forever
-            // here, the Firestore profile was never written, and sign-in stayed
-            // on Loading with no username anywhere.
             val baseName = UsernameUtils.baseUsernameFor(
                 displayName = firebaseUser.displayName,
                 email = firebaseUser.email,
@@ -182,13 +221,15 @@ class AuthRepository @Inject constructor(
                 updatedAt = System.currentTimeMillis(),
             )
 
-            val batch = firestore.batch()
-            batch.set(firestore.collection("users").document(firebaseUser.uid), newUser)
-            batch.set(
-                firestore.collection("usernames").document(uniqueUsername),
-                mapOf("uid" to firebaseUser.uid, "createdAt" to System.currentTimeMillis())
-            )
-            batch.commit().await()
+            runCatching {
+                val batch = firestore.batch()
+                batch.set(firestore.collection("users").document(firebaseUser.uid), newUser)
+                batch.set(
+                    firestore.collection("usernames").document(uniqueUsername),
+                    mapOf("uid" to firebaseUser.uid, "createdAt" to System.currentTimeMillis())
+                )
+                batch.commit().await()
+            }
             newUser
         }
     }

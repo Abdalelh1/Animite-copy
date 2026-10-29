@@ -56,6 +56,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.foundation.layout.heightIn
+import com.imashnake.animite.social.model.FieldVisibility
+import com.imashnake.animite.social.model.ProfilePrivacy
+import com.imashnake.animite.social.model.ProfileVisibility
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -137,6 +145,24 @@ fun AccountSettingsScreen(
     var showDeleteAccountDialog by remember { mutableStateOf(false) }
     var showPasswordResetConfirmDialog by remember { mutableStateOf(false) }
     var isSendingPasswordReset by remember { mutableStateOf(false) }
+
+    // Security & privacy — the single place that owns the profile's visibility contract.
+    var isPrivateAccount by remember(user?.uid) { mutableStateOf(user?.isPrivate == true) }
+    var birthVisibility by remember(user?.uid) { mutableStateOf((user?.privacy ?: ProfilePrivacy.DEFAULT).birthDateField.name) }
+    var genderVisibility by remember(user?.uid) { mutableStateOf((user?.privacy ?: ProfilePrivacy.DEFAULT).genderField.name) }
+    var allowMessages by remember(user?.uid) { mutableStateOf(user?.allowMessagesFrom ?: "everyone") }
+
+    val savePrivacy: (Boolean, String, String, String) -> Unit = { privateAccount, birth, gender, messages ->
+        val base = user?.privacy ?: ProfilePrivacy.DEFAULT
+        viewModel.updatePrivacy(
+            base.copy(
+                profileVisibility = if (privateAccount) ProfileVisibility.PRIVATE.name else ProfileVisibility.PUBLIC.name,
+                birthDateVisibility = birth,
+                genderVisibility = gender,
+            ),
+            allowMessagesFrom = messages,
+        )
+    }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -443,9 +469,71 @@ fun AccountSettingsScreen(
 
                     AccountActionRow(
                         icon = Icons.Default.PrivacyTip,
-                        title = "خصوصية الحساب",
-                        subtitle = if (user?.isPrivate == true) "حساب خاص (المعتمدون فقط)" else "حساب عام للجميع",
-                        onClick = onNavigateToEditProfile
+                        title = if (isPrivateAccount) stringResource(R.string.account_private_title) else stringResource(R.string.account_public_title),
+                        subtitle = if (isPrivateAccount) {
+                            stringResource(R.string.account_private_desc)
+                        } else {
+                            stringResource(R.string.account_public_desc)
+                        },
+                        onClick = {
+                            isPrivateAccount = !isPrivateAccount
+                            savePrivacy(isPrivateAccount, birthVisibility, genderVisibility, allowMessages)
+                        }
+                    )
+
+                    Switch(
+                        checked = isPrivateAccount,
+                        onCheckedChange = {
+                            isPrivateAccount = it
+                            savePrivacy(it, birthVisibility, genderVisibility, allowMessages)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    SettingsChoiceRow(
+                        title = stringResource(R.string.birth_date_visibility_label),
+                        options = listOf(
+                            FieldVisibility.PUBLIC.name to stringResource(R.string.visibility_public),
+                            FieldVisibility.FRIENDS.name to stringResource(R.string.visibility_friends),
+                            FieldVisibility.PRIVATE.name to stringResource(R.string.visibility_private),
+                        ),
+                        selected = birthVisibility,
+                        onSelect = {
+                            birthVisibility = it
+                            savePrivacy(isPrivateAccount, it, genderVisibility, allowMessages)
+                        }
+                    )
+
+                    SettingsChoiceRow(
+                        title = stringResource(R.string.gender_visibility_label),
+                        options = listOf(
+                            FieldVisibility.PUBLIC.name to stringResource(R.string.visibility_public),
+                            FieldVisibility.FRIENDS.name to stringResource(R.string.visibility_friends),
+                            FieldVisibility.PRIVATE.name to stringResource(R.string.visibility_private),
+                        ),
+                        selected = genderVisibility,
+                        onSelect = {
+                            genderVisibility = it
+                            savePrivacy(isPrivateAccount, birthVisibility, it, allowMessages)
+                        }
+                    )
+
+                    SettingsChoiceRow(
+                        title = stringResource(R.string.who_can_message_title),
+                        options = listOf(
+                            "everyone" to stringResource(R.string.messages_everyone),
+                            "followers" to stringResource(R.string.messages_followers),
+                            "none" to stringResource(R.string.messages_none),
+                        ),
+                        selected = allowMessages,
+                        onSelect = {
+                            allowMessages = it
+                            savePrivacy(isPrivateAccount, birthVisibility, genderVisibility, it)
+                        }
                     )
 
                     if (isPasswordProvider && email.isNotBlank()) {
@@ -773,6 +861,42 @@ private fun AccountActionRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+    }
+}
+
+@Composable
+private fun SettingsChoiceRow(
+    title: String,
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            options.forEach { (value, label) ->
+                FilterChip(
+                    selected = selected.equals(value, ignoreCase = true),
+                    onClick = { onSelect(value) },
+                    label = { Text(label) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                )
+            }
         }
     }
 }

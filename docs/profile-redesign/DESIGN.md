@@ -149,3 +149,31 @@ Comment documents do not store anime cover URLs, so Media tiles are brand
 gradient tiles labelled with the anime id / episodes. Storing `coverUrl`
 (and the anime title) on comment creation would upgrade the Media tab to
 real cover art with no layout change.
+
+## Appendix — avatar card (current, supersedes "circular avatar" in Layout §3)
+
+The owner picked the portrait profile card from a screenshot of the running app, so it is
+now the standard for every profile (`ProfileCustomization.effectiveAvatarCornerRadius`):
+
+| Property        | Value                                                                  |
+| --------------- | ---------------------------------------------------------------------- |
+| Regular tier    | 84.dp **circle** (default avatar for every non-elite account)          |
+| Elite tier      | 84.dp × 100.dp square photo card, `ContentScale.Crop`; elite may switch to the circle/square presets |
+| Position        | cover's bottom-start, 16.dp from the start edge, flush with the bottom  |
+| Shape (elite)   | square corners (`RoundedCornerShape(0.dp)`) — a printed-photo look      |
+| Frame           | 2.dp matte in `colorScheme.background` (separates photo from the cover) |
+| Placeholder     | same shape/frame over an `accent → primaryContainer` gradient + initial |
+
+Personal info added alongside the card: optional `birthDate` (`yyyy-MM-dd`) and `gender`
+(`male|female|other`), each with its own `ProfilePrivacy` scope (`PUBLIC` / `FRIENDS` = followers /
+`PRIVATE` = only me). The header renders them in the meta row through
+`AnimiteUser.canSeeBirthDate` / `canSeeGender`, so the privacy scope is enforced at render time,
+not only stored. No Firestore rule change was needed — `users/{uid}` already allows these fields.
+
+Measured from the reference screenshot (472×1024): the card is 106 px × 127 px at ~1.25 px/dp
+→ **84×100 dp**, corners are a right angle, and the photo sits inside a ~3 px matte in the page
+colour (~2.4 dp). Earlier builds stored `avatarCornerRadius = 28` as an "unset" marker and later
+ones let users pick any radius, so one profile rendered a 28 dp squircle, another an 11 dp card.
+The header now renders the canonical card for everyone and the editor previews the same one.
+`avatar-card-spec.png` / `avatar-card-refit.png` / `avatar-square-vs-tall.png` / `exact_match.png`
+show the history.

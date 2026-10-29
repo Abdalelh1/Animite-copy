@@ -442,7 +442,14 @@ fun AuthContent(
                 viewModel.setErrorMessage("تعذر استرجاع رمز المصادقة من Google.")
             }
         } catch (e: ApiException) {
-            viewModel.setErrorMessage("فشل تسجيل الدخول عبر Google (رمز ${e.statusCode})")
+            val msg = when (e.statusCode) {
+                10 -> "خطأ في إعدادات Google (رمز 10: DEVELOPER_ERROR). يرجى التأكد من إضافة بصمة SHA-1 في Firebase Console."
+                12500 -> "فشل تسجيل الدخول عبر Google (رمز 12500). يرجى التأكد من تحديث خدمات Google Play."
+                7 -> "لا يوجد اتصال بالإنترنت (رمز 7)."
+                16, 12501 -> "تم إلغاء تسجيل الدخول عبر Google."
+                else -> "فشل تسجيل الدخول عبر Google (رمز ${e.statusCode})"
+            }
+            viewModel.setErrorMessage(msg)
         } catch (e: Exception) {
             viewModel.setErrorMessage(e.localizedMessage ?: "حدث خطأ أثناء الاتصال بحساب Google")
         }

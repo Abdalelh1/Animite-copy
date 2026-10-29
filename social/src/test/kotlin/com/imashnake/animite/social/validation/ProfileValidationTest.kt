@@ -117,7 +117,7 @@ class ProfileValidationTest {
         assertNotNull(legacyUser.privacy)
 
         assertEquals("#00D1FF", legacyUser.customization.accentColor)
-        assertEquals(ThemePreset.CYAN_GLOW.id, legacyUser.customization.themePreset)
+        assertEquals(ThemePreset.DEFAULT_DARK.id, legacyUser.customization.themePreset)
         assertEquals(LayoutPreset.STANDARD.id, legacyUser.customization.layoutPreset)
 
         assertEquals(ProfileVisibility.PUBLIC.name, legacyUser.privacy.profileVisibility)

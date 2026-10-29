@@ -80,6 +80,7 @@ fun CommentsSection(
     val comments by viewModel.comments.collectAsState()
     val authState by viewModel.authState.collectAsState()
     val isSubmitting by viewModel.isSubmitting.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
     var showAuthSheet by remember { mutableStateOf(false) }
@@ -206,6 +207,18 @@ fun CommentsSection(
                     }
                 }
             }
+        }
+
+        if (errorMessage != null) {
+            Text(
+                text = errorMessage.orEmpty(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .clickable(onClick = viewModel::clearError)
+            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))

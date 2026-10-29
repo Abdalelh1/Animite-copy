@@ -51,7 +51,7 @@ class AuthViewModel @Inject constructor(
 
     fun signIn(email: String, pass: String) {
         if (email.isBlank() || pass.isBlank()) {
-            _uiState.value = AuthUiState.Error("Please fill in all fields")
+            _uiState.value = AuthUiState.Error("يرجى إدخال البريد الإلكتروني وكلمة المرور")
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -60,16 +60,16 @@ class AuthViewModel @Inject constructor(
                 authRepository.signInWithEmail(email, pass)
             }.onSuccess { result ->
                 result.onSuccess { _uiState.value = AuthUiState.Success }
-                    .onFailure { _uiState.value = AuthUiState.Error(it.localizedMessage ?: "Sign in failed") }
+                    .onFailure { _uiState.value = AuthUiState.Error(formatAuthError(it)) }
             }.onFailure {
-                _uiState.value = AuthUiState.Error(it.localizedMessage ?: "Sign in failed")
+                _uiState.value = AuthUiState.Error(formatAuthError(it))
             }
         }
     }
 
     fun signUp(email: String, pass: String, username: String, displayName: String) {
         if (email.isBlank() || pass.isBlank() || username.isBlank()) {
-            _uiState.value = AuthUiState.Error("Please fill in required fields")
+            _uiState.value = AuthUiState.Error("يرجى ملء جميع الحقول المطلوبة")
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -78,9 +78,9 @@ class AuthViewModel @Inject constructor(
                 authRepository.signUpWithEmail(email, pass, username, displayName)
             }.onSuccess { result ->
                 result.onSuccess { _uiState.value = AuthUiState.Success }
-                    .onFailure { _uiState.value = AuthUiState.Error(it.localizedMessage ?: "Sign up failed") }
+                    .onFailure { _uiState.value = AuthUiState.Error(formatAuthError(it)) }
             }.onFailure {
-                _uiState.value = AuthUiState.Error(it.localizedMessage ?: "Sign up failed")
+                _uiState.value = AuthUiState.Error(formatAuthError(it))
             }
         }
     }
@@ -92,16 +92,16 @@ class AuthViewModel @Inject constructor(
                 authRepository.signInWithGoogle(idToken)
             }.onSuccess { result ->
                 result.onSuccess { _uiState.value = AuthUiState.Success }
-                    .onFailure { _uiState.value = AuthUiState.Error(it.localizedMessage ?: "Google sign in failed") }
+                    .onFailure { _uiState.value = AuthUiState.Error(formatAuthError(it)) }
             }.onFailure {
-                _uiState.value = AuthUiState.Error(it.localizedMessage ?: "Google sign in failed")
+                _uiState.value = AuthUiState.Error(formatAuthError(it))
             }
         }
     }
 
     fun resetPassword(email: String) {
         if (email.isBlank()) {
-            _uiState.value = AuthUiState.Error("Enter your email address")
+            _uiState.value = AuthUiState.Error("يرجى إدخال بريدك الإلكتروني لإعادة تعيين كلمة المرور")
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -109,10 +109,10 @@ class AuthViewModel @Inject constructor(
             runCatching {
                 authRepository.sendPasswordResetEmail(email)
             }.onSuccess { result ->
-                result.onSuccess { _uiState.value = AuthUiState.Message("Password reset email sent!") }
-                    .onFailure { _uiState.value = AuthUiState.Error(it.localizedMessage ?: "Failed to send reset email") }
+                result.onSuccess { _uiState.value = AuthUiState.Message("تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني.") }
+                    .onFailure { _uiState.value = AuthUiState.Error(formatAuthError(it)) }
             }.onFailure {
-                _uiState.value = AuthUiState.Error(it.localizedMessage ?: "Failed to send reset email")
+                _uiState.value = AuthUiState.Error(formatAuthError(it))
             }
         }
     }
@@ -127,6 +127,32 @@ class AuthViewModel @Inject constructor(
 
     fun signOut() {
         authRepository.signOut()
+    }
+
+    private fun formatAuthError(throwable: Throwable): String {
+        val message = throwable.localizedMessage ?: throwable.message.orEmpty()
+        return when {
+            message.contains("user-not-found", ignoreCase = true) ||
+                message.contains("no user record", ignoreCase = true) ->
+                "لم يتم العثور على حساب مسجل بهذا البريد الإلكتروني."
+            message.contains("wrong-password", ignoreCase = true) ||
+                message.contains("invalid-credential", ignoreCase = true) ->
+                "البريد الإلكتروني أو كلمة المرور غير صحيحة."
+            message.contains("email-already-in-use", ignoreCase = true) ->
+                "البريد الإلكتروني مستخدم بالفعل بحساب آخر."
+            message.contains("invalid-email", ignoreCase = true) ->
+                "صيغة البريد الإلكتروني غير صالحة."
+            message.contains("weak-password", ignoreCase = true) ->
+                "كلمة المرور ضعيفة جداً (يجب أن تتكون من 8 أحرف على الأقل)."
+            message.contains("network-request-failed", ignoreCase = true) ||
+                message.contains("offline", ignoreCase = true) ||
+                message.contains("unable to resolve host", ignoreCase = true) ->
+                "تعذر الاتصال بالخادم. يرجى التحقق من اتصالك بالإنترنت."
+            message.contains("too-many-requests", ignoreCase = true) ->
+                "تم حظر المحاولات مؤقتاً بسبب كثرة الطلبات. يرجى المحاولة لاحقاً."
+            message.isNotBlank() -> message
+            else -> "حدث خطأ أثناء تنفيذ العملية."
+        }
     }
 }
 

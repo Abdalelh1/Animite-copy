@@ -67,13 +67,13 @@ class SocialModelsTest {
         assertFalse(normalUser.isModerator)
         assertEquals(null, normalUser.badgeLabel)
 
-        val modUser = AnimiteUser(uid = "2", role = "moderator")
+        val modUser = AnimiteUser(uid = "2", role = "moderator", tier = "elite")
         assertFalse(modUser.isOwner)
         assertFalse(modUser.isAdmin)
         assertTrue(modUser.isModerator)
         assertEquals("مشرف", modUser.badgeLabel)
 
-        val adminUser = AnimiteUser(uid = "3", role = "admin")
+        val adminUser = AnimiteUser(uid = "3", role = "admin", tier = "elite")
         assertFalse(adminUser.isOwner)
         assertTrue(adminUser.isAdmin)
         assertTrue(adminUser.isModerator)
@@ -85,7 +85,7 @@ class SocialModelsTest {
         assertTrue(ownerUser.isModerator)
         assertEquals("مالك التطبيق", ownerUser.badgeLabel)
 
-        val customBadgeUser = AnimiteUser(uid = "5", role = "user", customBadgeTitle = "مشرف الفعاليات")
+        val customBadgeUser = AnimiteUser(uid = "5", role = "user", tier = "elite", customBadgeTitle = "مشرف الفعاليات")
         assertEquals("مشرف الفعاليات", customBadgeUser.badgeLabel)
         assertTrue(customBadgeUser.hasBadge)
     }
@@ -109,7 +109,7 @@ class SocialModelsTest {
         assertFalse(userNoCover.isLiveCoverGif)
 
         val userMp4 = AnimiteUser(
-            uid = "u2",
+            uid = "u2", tier = "elite",
             liveCoverUrl = "https://res.cloudinary.com/demo/video/upload/cover.mp4",
             liveCoverMediaType = "video/mp4"
         )
@@ -118,7 +118,7 @@ class SocialModelsTest {
         assertFalse(userMp4.isLiveCoverGif)
 
         val userGif = AnimiteUser(
-            uid = "u3",
+            uid = "u3", tier = "elite",
             liveCoverUrl = "https://res.cloudinary.com/demo/image/upload/cover.gif",
             liveCoverMediaType = "image/gif"
         )

@@ -1,9 +1,11 @@
 package com.imashnake.animite.social.ui.profile
 
-import android.app.Activity
 import android.content.Context
+import android.graphics.Matrix
 import android.net.ConnectivityManager
 import android.provider.Settings
+import android.view.TextureView
+import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -45,18 +47,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -66,10 +69,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
 
 /**
@@ -86,6 +88,7 @@ fun LiveCoverPlayer(
     isOwner: Boolean,
     modifier: Modifier = Modifier,
     isCoverVisible: Boolean = true,
+    showControls: Boolean = true,
     parallaxOffset: Float = 0f,
     onCoverClick: () -> Unit = {},
     onAddCoverClick: (() -> Unit)? = null,
@@ -111,6 +114,8 @@ fun LiveCoverPlayer(
     var isVideoBuffering by remember { mutableStateOf(false) }
     var isVideoReady by remember { mutableStateOf(false) }
     var hasPlaybackError by remember { mutableStateOf(false) }
+    var videoWidth by remember { mutableIntStateOf(0) }
+    var videoHeight by remember { mutableIntStateOf(0) }
 
     // ExoPlayer management
     val exoPlayer = remember(context, liveCoverUrl, isVideo) {
@@ -148,6 +153,13 @@ fun LiveCoverPlayer(
                 }
             }
 
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (videoSize.width > 0 && videoSize.height > 0) {
+                    videoWidth = videoSize.width
+                    videoHeight = videoSize.height
+                }
+            }
+
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 isVideoBuffering = false
                 hasPlaybackError = true
@@ -165,7 +177,13 @@ fun LiveCoverPlayer(
     // Play/Pause control based on visibility, user preference, and screen lifecycle
     LaunchedEffect(exoPlayer, isPlaying, isCoverVisible, isMuted) {
         exoPlayer?.let { player ->
-            player.playWhenReady = isPlaying && isCoverVisible
+            val shouldPlay = isPlaying && isCoverVisible
+            player.playWhenReady = shouldPlay
+            if (shouldPlay) {
+                player.play()
+            } else {
+                player.pause()
+            }
             player.volume = if (isMuted) 0f else 1f
         }
     }
@@ -210,6 +228,7 @@ fun LiveCoverPlayer(
     Box(
         modifier = modifier
             .fillMaxSize()
+            .clipToBounds()
             .graphicsLayer {
                 translationY = parallaxOffset * 0.35f
             }
@@ -219,7 +238,7 @@ fun LiveCoverPlayer(
             ) { onCoverClick() }
     ) {
         // LAYER 1: Base static fallback / Static banner / Gradient
-        val effectivePoster = posterUrl ?: fallbackBannerUrl
+        val effectivePoster = if (hasLiveCover) (posterUrl ?: fallbackBannerUrl) else fallbackBannerUrl
         if (!effectivePoster.isNullOrBlank()) {
             AsyncImage(
                 model = effectivePoster,
@@ -237,14 +256,14 @@ fun LiveCoverPlayer(
                             listOf(
                                 MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                                 MaterialTheme.colorScheme.tertiary.copy(alpha = 0.85f),
-                                MaterialTheme.colorScheme.surface
+                                MaterialTheme.colorScheme.surfaceVariant
                             )
                         )
                     )
             )
         }
 
-        // LAYER 2: Animated Media (GIF or MP4 Video)
+        // LAYER 2: Animated Media (GIF or MP4 Video via TextureView for clean Compose clipping & scrolling)
         if (hasLiveCover && !hasPlaybackError) {
             if (isGif) {
                 AsyncImage(
@@ -256,18 +275,28 @@ fun LiveCoverPlayer(
             } else if (isVideo && exoPlayer != null) {
                 AndroidView(
                     factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            useController = false
-                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                            this.player = exoPlayer
+                        TextureView(ctx).apply {
                             layoutParams = FrameLayout.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
+                            exoPlayer.setVideoTextureView(this)
+                            addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                                val tv = v as? TextureView ?: return@addOnLayoutChangeListener
+                                val vw = exoPlayer.videoSize.width.takeIf { it > 0 } ?: videoWidth
+                                val vh = exoPlayer.videoSize.height.takeIf { it > 0 } ?: videoHeight
+                                applyCenterCropTransform(tv, vw, vh)
+                            }
                         }
+                    },
+                    update = { textureView ->
+                        val vw = exoPlayer.videoSize.width.takeIf { it > 0 } ?: videoWidth
+                        val vh = exoPlayer.videoSize.height.takeIf { it > 0 } ?: videoHeight
+                        applyCenterCropTransform(textureView, vw, vh)
                     },
                     modifier = Modifier
                         .fillMaxSize()
+                        .clipToBounds()
                         .graphicsLayer {
                             alpha = if (isVideoReady) 1f else 0f
                         }
@@ -285,11 +314,11 @@ fun LiveCoverPlayer(
             Surface(
                 shape = CircleShape,
                 color = Color.Black.copy(alpha = 0.5f),
-                modifier = Modifier.size(42.dp)
+                modifier = Modifier.size(38.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(20.dp),
                         color = Color.White,
                         strokeWidth = 2.5.dp
                     )
@@ -297,152 +326,166 @@ fun LiveCoverPlayer(
             }
         }
 
-        // LAYER 4: Scrim Gradients for Contrast
-        // Top scrim for status bar readability
+        // LAYER 4: Subtle Scrim Gradients for Readability (without washing out or hiding the banner)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(90.dp)
+                .height(48.dp)
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.55f),
-                            Color.Black.copy(alpha = 0.2f),
+                            Color.Black.copy(alpha = 0.42f),
                             Color.Transparent
                         )
                     )
                 )
         )
 
-        // Bottom scrim for avatar edge overlap contrast
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(110.dp)
+                .height(36.dp)
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            MaterialTheme.colorScheme.background.copy(alpha = 0.35f),
-                            MaterialTheme.colorScheme.background.copy(alpha = 0.85f),
-                            MaterialTheme.colorScheme.background
+                            Color.Black.copy(alpha = 0.35f)
                         )
                     )
                 )
         )
 
-        // LAYER 5: Live Cover Badge & Controls (Bottom-Right / Top-End)
-        if (hasLiveCover) {
+        // Subtle bottom border line separating banner from profile content
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .align(Alignment.BottomCenter)
+                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        )
+
+        // LAYER 5: Live Cover Badge & Controls (Positioned cleanly at Bottom-End corner of banner)
+        if (hasLiveCover && showControls) {
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 44.dp),
+                    .padding(end = 8.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                // Play / Pause Toggle Button
-                Surface(
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.55f),
-                    modifier = Modifier.size(32.dp)
-                ) {
+                if (showControls) {
+                    // Play / Pause Toggle Button (48.dp touch target)
                     IconButton(
                         onClick = { isPlaying = !isPlaying },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.size(48.dp)
                     ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause cover" else "Play cover",
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (isPlaying) "إيقاف الغلاف المتحرك مؤقتاً" else "تشغيل الغلاف المتحرك",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
                     }
-                }
 
-                // Audio Mute / Unmute Button (for videos)
-                if (isVideo) {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color.Black.copy(alpha = 0.55f),
-                        modifier = Modifier.size(32.dp)
-                    ) {
+                    // Audio Mute / Unmute Button (for videos, 48.dp touch target)
+                    if (isVideo) {
                         IconButton(
                             onClick = { isMuted = !isMuted },
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.size(48.dp)
                         ) {
-                            Icon(
-                                imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
-                                contentDescription = if (isMuted) "Unmute cover" else "Mute cover",
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
+                                        contentDescription = if (isMuted) "تشغيل صوت الغلاف" else "كتم صوت الغلاف",
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
-                // "LIVE COVER" Pill Indicator
+                // "LIVE" Pill Indicator
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color.Black.copy(alpha = 0.55f),
-                    modifier = Modifier.height(28.dp)
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
+                    modifier = Modifier
+                        .padding(start = 4.dp)
+                        .height(24.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(7.dp)
+                                .size(6.dp)
                                 .clip(CircleShape)
                                 .background(
-                                    if (isPlaying) Color(0xFF00E676).copy(alpha = livePulseAlpha)
-                                    else Color.White.copy(alpha = 0.6f)
+                                    if (isPlaying) MaterialTheme.colorScheme.tertiary.copy(alpha = livePulseAlpha)
+                                    else MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f)
                                 )
                         )
                         Text(
                             text = "LIVE",
-                            color = Color.White,
-                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
+                            letterSpacing = 0.8.sp
                         )
                     }
                 }
             }
-        } else if (isOwner && onAddCoverClick != null) {
-            // Elegant "Add Cover" button for profile owner when no cover is set
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = Color.Black.copy(alpha = 0.5f),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 44.dp)
-                    .clickable { onAddCoverClick() }
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AddPhotoAlternate,
-                        contentDescription = "Add Cover",
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = "غلاف متحرك",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
         }
     }
+}
+
+/**
+ * Applies a center-crop (ContentScale.Crop) matrix transformation to a [TextureView]
+ * so the video fills the 3:1 banner container without stretching or leaving black bars.
+ */
+private fun applyCenterCropTransform(
+    textureView: TextureView,
+    videoWidth: Int,
+    videoHeight: Int,
+) {
+    val viewWidth = textureView.width.toFloat()
+    val viewHeight = textureView.height.toFloat()
+    if (viewWidth <= 0f || viewHeight <= 0f || videoWidth <= 0 || videoHeight <= 0) return
+
+    val viewAspect = viewWidth / viewHeight
+    val videoAspect = videoWidth.toFloat() / videoHeight.toFloat()
+
+    val scaleX: Float
+    val scaleY: Float
+    if (videoAspect > viewAspect) {
+        scaleX = videoAspect / viewAspect
+        scaleY = 1f
+    } else {
+        scaleX = 1f
+        scaleY = viewAspect / videoAspect
+    }
+
+    val matrix = Matrix()
+    matrix.setScale(scaleX, scaleY, viewWidth / 2f, viewHeight / 2f)
+    textureView.setTransform(matrix)
 }
 
 /**

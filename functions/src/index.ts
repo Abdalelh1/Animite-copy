@@ -534,3 +534,90 @@ export const cleanupExpiredPremium = onSchedule('every 24 hours', async () => {
 
     console.log(`Successfully completed cleanup for ${totalProcessed} expired premium accounts.`);
 });
+
+
+/**
+ * Trusted backend callable function to promote a user to the Elite tier or revoke Elite status.
+ * Verifies the caller is the application owner (via custom claims or server-controlled user doc),
+ * updates `tier`, `eliteGrantedAt`, `eliteGrantedBy`, and `eliteBadges`, and writes an immutable audit log.
+ * On demotion (`tier === 'regular'`), preserves the user's previous animated cover and customization
+ * so they return if the user is promoted again later.
+ */
+export const setUserEliteTier = onCall(async (request) => {
+    if (!request.auth || !request.auth.uid) {
+        throw new HttpsError('unauthenticated', 'User must be authenticated.');
+    }
+    const callerUid = request.auth.uid;
+    const token = request.auth.token || {};
+    let isOwnerCaller = token.role === 'owner' || token.isOwner === true;
+
+    if (!isOwnerCaller) {
+        const callerSnap = await db.collection('users').doc(callerUid).get();
+        const callerData = callerSnap.data() || {};
+        isOwnerCaller = callerData.isOwner === true || String(callerData.role || '').toLowerCase() === 'owner';
+    }
+    if (!isOwnerCaller) {
+        throw new HttpsError('permission-denied', 'Access denied: Only the application owner can grant or revoke Elite status.');
+    }
+
+    const { targetUid, tier, eliteBadges, reason } = request.data || {};
+    if (!targetUid || typeof targetUid !== 'string' || targetUid.trim().length === 0) {
+        throw new HttpsError('invalid-argument', 'Valid targetUid must be provided.');
+    }
+    const cleanTier = String(tier || '').trim().toLowerCase();
+    if (cleanTier !== 'regular' && cleanTier !== 'elite') {
+        throw new HttpsError('invalid-argument', 'tier must be either "regular" or "elite".');
+    }
+
+    const targetUserRef = db.collection('users').doc(targetUid);
+    const targetUserSnap = await targetUserRef.get();
+    if (!targetUserSnap.exists) {
+        throw new HttpsError('not-found', 'Target user document does not exist.');
+    }
+
+    const currentData = targetUserSnap.data() || {};
+    const previousTier = String(currentData.tier || 'regular').toLowerCase();
+    const now = Date.now();
+
+    const sanitizedBadges: string[] = Array.isArray(eliteBadges)
+        ? eliteBadges.map((b: any) => String(b).trim()).filter((b: string) => b.length > 0)
+        : [];
+
+    const updates: Record<string, any> = cleanTier === 'elite'
+        ? {
+            tier: 'elite',
+            eliteGrantedAt: now,
+            eliteGrantedBy: callerUid,
+            eliteBadges: sanitizedBadges,
+            updatedAt: now,
+        }
+        : {
+            tier: 'regular',
+            updatedAt: now,
+        };
+
+    await targetUserRef.update(updates);
+
+    const auditLogId = `elite_${now}_${Math.random().toString(36).substring(2, 7)}`;
+    const callerRecord = await auth.getUser(callerUid);
+    await db.collection('audit_logs').doc(auditLogId).set({
+        id: auditLogId,
+        actorUid: callerUid,
+        actorName: callerRecord.displayName || callerRecord.email || callerUid,
+        actorRole: 'owner',
+        targetUid: targetUid,
+        targetName: currentData.displayName || currentData.username || targetUid,
+        action: cleanTier === 'elite' ? 'ELITE_GRANTED' : 'ELITE_REVOKED',
+        details: reason ? String(reason) : `Tier changed from ${previousTier} to ${cleanTier}`,
+        previousValue: previousTier,
+        newValue: cleanTier,
+        timestamp: now,
+    });
+
+    return {
+        success: true,
+        targetUid,
+        tier: cleanTier,
+        eliteBadges: cleanTier === 'elite' ? sanitizedBadges : (currentData.eliteBadges || []),
+    };
+});

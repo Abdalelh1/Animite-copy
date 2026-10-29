@@ -94,3 +94,8 @@ data object AccountSettingsRoute
 @Serializable
 data object NotificationsRoute
 
+@Serializable
+data class AnimeListRoute(
+    val userId: String,
+)
+

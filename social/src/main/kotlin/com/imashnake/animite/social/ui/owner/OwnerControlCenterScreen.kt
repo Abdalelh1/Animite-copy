@@ -107,6 +107,14 @@ import com.imashnake.animite.social.model.UserRole
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.runtime.rememberCoroutineScope
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -114,6 +122,8 @@ fun OwnerControlCenterScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: OwnerControlCenterViewModel = hiltViewModel(),
+    playbackSourcesContent: @Composable () -> Unit = {},
+    aiAssistantContent: @Composable () -> Unit = {},
 ) {
     val ownerAuthState by viewModel.ownerAuthState.collectAsState()
     val uiMessage by viewModel.uiMessage.collectAsState()
@@ -208,7 +218,9 @@ fun OwnerControlCenterScreen(
                     is OwnerAuthState.Authorized -> {
                         AuthorizedOwnerContent(
                             owner = state.ownerUser,
-                            viewModel = viewModel
+                            viewModel = viewModel,
+                            playbackSourcesContent = playbackSourcesContent,
+                            aiAssistantContent = aiAssistantContent,
                         )
                     }
                 }
@@ -292,6 +304,8 @@ private fun UnauthorizedAccessView(
 private fun AuthorizedOwnerContent(
     owner: AnimiteUser,
     viewModel: OwnerControlCenterViewModel,
+    playbackSourcesContent: @Composable () -> Unit,
+    aiAssistantContent: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -300,7 +314,9 @@ private fun AuthorizedOwnerContent(
         "المستخدمين" to Icons.Default.People,
         "الصلاحيات" to Icons.Default.Security,
         "إعدادات النظام" to Icons.Default.Settings,
-        "سجل العمليات" to Icons.Default.History
+        "سجل العمليات" to Icons.Default.History,
+        "مصادر التشغيل" to Icons.Default.PlayArrow,
+        "المساعد الذكي" to Icons.Default.SmartToy
     )
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -360,6 +376,8 @@ private fun AuthorizedOwnerContent(
                 2 -> RolesMatrixTab()
                 3 -> SystemSettingsTab(viewModel)
                 4 -> AuditLogsTab(viewModel)
+                5 -> playbackSourcesContent()
+                6 -> aiAssistantContent()
             }
         }
     }

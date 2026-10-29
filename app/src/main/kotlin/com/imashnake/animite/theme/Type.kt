@@ -6,32 +6,24 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.googlefonts.Font
-import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.unit.sp
 import com.animeta.app.R
 
-internal val fontProvider = GoogleFont.Provider(
-    providerAuthority = "com.google.android.gms.fonts",
-    providerPackage = "com.google.android.gms",
-    certificates = R.array.com_google_android_gms_fonts_certs
-)
 
-internal val manropeFont = GoogleFont("Manrope")
-internal val cairoFont = GoogleFont("Cairo")
 
 /**
  * [Manrope](https://fonts.google.com/specimen/Manrope).
+ * Bundled locally for instant, offline, zero-latency font loading.
  */
 val manropeFontFamily = FontFamily(
-    Font(manropeFont, fontProvider, FontWeight.ExtraBold),
-    Font(manropeFont, fontProvider, FontWeight.Bold),
-    Font(manropeFont, fontProvider, FontWeight.SemiBold),
-    Font(manropeFont, fontProvider, FontWeight.Medium),
-    Font(manropeFont, fontProvider, FontWeight.Normal),
-    Font(manropeFont, fontProvider, FontWeight.Light),
-    Font(manropeFont, fontProvider, FontWeight.ExtraLight),
+    Font(R.font.manrope, FontWeight.ExtraBold),
+    Font(R.font.manrope, FontWeight.Bold),
+    Font(R.font.manrope, FontWeight.SemiBold),
+    Font(R.font.manrope, FontWeight.Medium),
+    Font(R.font.manrope, FontWeight.Normal),
+    Font(R.font.manrope, FontWeight.Light),
+    Font(R.font.manrope, FontWeight.ExtraLight),
     Font(R.font.manrope_italic, FontWeight.Normal, FontStyle.Italic),
     Font(R.font.manrope_bold_italic, FontWeight.Bold, FontStyle.Italic),
     Font(R.font.manrope_extra_bold_italic, FontWeight.ExtraBold, FontStyle.Italic),
@@ -39,20 +31,20 @@ val manropeFontFamily = FontFamily(
     Font(R.font.manrope_medium_italic, FontWeight.Medium, FontStyle.Italic),
     Font(R.font.manrope_extra_light_italic, FontWeight.ExtraLight, FontStyle.Italic),
     Font(R.font.manrope_semi_bold_italic, FontWeight.SemiBold, FontStyle.Italic),
-    Font(R.font.manrope) // fallback?
 )
 
 /**
  * [Cairo](https://fonts.google.com/specimen/Cairo).
+ * Bundled locally for instant, offline, zero-latency font loading.
  */
 val cairoFontFamily = FontFamily(
-    Font(cairoFont, fontProvider, FontWeight.ExtraBold),
-    Font(cairoFont, fontProvider, FontWeight.Bold),
-    Font(cairoFont, fontProvider, FontWeight.SemiBold),
-    Font(cairoFont, fontProvider, FontWeight.Medium),
-    Font(cairoFont, fontProvider, FontWeight.Normal),
-    Font(cairoFont, fontProvider, FontWeight.Light),
-    Font(cairoFont, fontProvider, FontWeight.ExtraLight),
+    Font(R.font.cairo, FontWeight.ExtraBold),
+    Font(R.font.cairo, FontWeight.Bold),
+    Font(R.font.cairo, FontWeight.SemiBold),
+    Font(R.font.cairo, FontWeight.Medium),
+    Font(R.font.cairo, FontWeight.Normal),
+    Font(R.font.cairo, FontWeight.Light),
+    Font(R.font.cairo, FontWeight.ExtraLight),
 )
 
 const val BASELINE_SHIFT = 0.2f

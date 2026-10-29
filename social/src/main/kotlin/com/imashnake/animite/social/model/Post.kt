@@ -1,6 +1,7 @@
 package com.imashnake.animite.social.model
 
 import androidx.compose.runtime.Immutable
+import com.google.firebase.firestore.PropertyName
 import kotlinx.serialization.Serializable
 
 @Immutable
@@ -17,8 +18,8 @@ data class Post(
     val mediaUrl: String? = null,
     val likesCount: Int = 0,
     val commentCount: Int = 0,
-    val isEdited: Boolean = false,
-    val isDeleted: Boolean = false,
+    @get:PropertyName("isEdited") val isEdited: Boolean = false,
+    @get:PropertyName("isDeleted") val isDeleted: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
 ) {
     val displayContent: String

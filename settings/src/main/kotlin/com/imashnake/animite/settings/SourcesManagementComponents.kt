@@ -80,25 +80,19 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 @Composable
-fun SourcesSettingsSection(
+fun PlaybackSourcesManagementSection(
     isDarkMode: Boolean,
     context: Context,
     modifier: Modifier = Modifier,
 ) {
-    val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
 
     val activeProviders by SourceRepositoryManager.orderedEnabledProviders.collectAsState()
     val customSources by SourceRepositoryManager.customSources.collectAsState()
     val allProviders = SourceRepositoryManager.getAllProviders(context)
     val displayNames = SourceRepositoryManager.getAllDisplayNames(context)
-    val aiStatus by AiAssistantRepository.connectionStatus.collectAsState()
 
     var showAddSourceDialog by remember { mutableStateOf(false) }
-    var showAiConfigDialog by remember { mutableStateOf(false) }
-    var showAiDiagnosisDialog by remember { mutableStateOf(false) }
-    var diagnosticSummary by remember { mutableStateOf<String?>(null) }
-    var isRunningDiagnostic by remember { mutableStateOf(false) }
 
     val bgColor = if (isDarkMode) MaterialTheme.colorScheme.surfaceContainer
     else MaterialTheme.colorScheme.surface
@@ -277,6 +271,63 @@ fun SourcesSettingsSection(
             }
         }
 
+        // ── Reset to defaults button ─────────────────────────────────────────
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(CircleShape)
+                .background(bgColor)
+                .clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    SourceRepositoryManager.resetToDefaults(context)
+                    Toast.makeText(context, "تمت إعادة ضبط جميع المصادر إلى الحالة الافتراضية", Toast.LENGTH_SHORT).show()
+                }
+                .padding(horizontal = LocalPaddings.current.large, vertical = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "إعادة ضبط المصادر إلى الافتراضي",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+
+    if (showAddSourceDialog) {
+        AddCustomSourceDialog(
+            context = context,
+            onDismiss = { showAddSourceDialog = false },
+            onSourceAdded = {
+                showAddSourceDialog = false
+                Toast.makeText(context, "تم حفظ المصدر بنجاح!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+
+}
+
+@Composable
+fun SmartAiAssistantSection(
+    isDarkMode: Boolean,
+    context: Context,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    val aiStatus by AiAssistantRepository.connectionStatus.collectAsState()
+
+    var showAiConfigDialog by remember { mutableStateOf(false) }
+    var showAiDiagnosisDialog by remember { mutableStateOf(false) }
+    var diagnosticSummary by remember { mutableStateOf<String?>(null) }
+    var isRunningDiagnostic by remember { mutableStateOf(false) }
+
+    val bgColor = if (isDarkMode) MaterialTheme.colorScheme.surfaceContainer
+    else MaterialTheme.colorScheme.surface
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(LocalPaddings.current.medium),
+        modifier = modifier,
+    ) {
         // ── Real AI Source Assistant Section ────────────────────────────────
         Box(
             modifier = Modifier
@@ -370,38 +421,7 @@ fun SourcesSettingsSection(
             }
         }
 
-        // ── Reset to defaults button ─────────────────────────────────────────
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(CircleShape)
-                .background(bgColor)
-                .clickable {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    SourceRepositoryManager.resetToDefaults(context)
-                    Toast.makeText(context, "تمت إعادة ضبط جميع المصادر إلى الحالة الافتراضية", Toast.LENGTH_SHORT).show()
-                }
-                .padding(horizontal = LocalPaddings.current.large, vertical = 14.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "إعادة ضبط المصادر إلى الافتراضي",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-    }
 
-    // ── Dialogs ──────────────────────────────────────────────────────────────
-    if (showAddSourceDialog) {
-        AddCustomSourceDialog(
-            context = context,
-            onDismiss = { showAddSourceDialog = false },
-            onSourceAdded = {
-                showAddSourceDialog = false
-                Toast.makeText(context, "تم حفظ المصدر بنجاح!", Toast.LENGTH_SHORT).show()
-            }
-        )
     }
 
     if (showAiConfigDialog) {
@@ -416,6 +436,21 @@ fun SourcesSettingsSection(
             context = context,
             onDismiss = { showAiDiagnosisDialog = false }
         )
+    }
+}
+
+@Composable
+fun SourcesSettingsSection(
+    isDarkMode: Boolean,
+    context: Context,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(LocalPaddings.current.medium),
+        modifier = modifier,
+    ) {
+        PlaybackSourcesManagementSection(isDarkMode = isDarkMode, context = context)
+        SmartAiAssistantSection(isDarkMode = isDarkMode, context = context)
     }
 }
 

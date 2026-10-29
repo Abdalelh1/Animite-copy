@@ -25,9 +25,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -78,6 +88,7 @@ import com.imashnake.animite.navigation.ProfileRoute
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.imashnake.animite.navigation.SocialRoute
+import com.imashnake.animite.navigation.AnimeListRoute
 import com.imashnake.animite.navigation.UserProfileRoute
 import com.imashnake.animite.navigation.ChatRoute
 import com.imashnake.animite.navigation.FollowListRoute
@@ -98,6 +109,11 @@ import com.imashnake.animite.social.ui.profile.UserProfileScreen
 import com.imashnake.animite.navigation.NotificationsRoute
 import com.imashnake.animite.social.ui.notifications.NotificationScreen
 import com.imashnake.animite.social.ui.owner.OwnerControlCenterScreen
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.verticalScroll
+import com.imashnake.animite.settings.PlaybackSourcesManagementSection
+import com.imashnake.animite.settings.SmartAiAssistantSection
+import com.imashnake.animite.social.ui.animelist.AnimeListScreen
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -274,7 +290,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     deviceScreenCornerRadius: Int,
@@ -296,9 +312,52 @@ fun MainScreen(
         } else false
     }
 
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val defaultNavBarHeightPx = with(density) {
+        androidx.compose.ui.res.dimensionResource(com.imashnake.animite.navigation.R.dimen.navigation_bar_height).toPx() +
+            androidx.compose.foundation.layout.WindowInsets.Companion.let { 120f }
+    }
+    val bottomBarState = androidx.compose.material3.rememberTopAppBarState(
+        initialHeightOffsetLimit = -defaultNavBarHeightPx,
+        initialHeightOffset = 0f,
+        initialContentOffset = 0f,
+    )
+    val bottomBarScrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(bottomBarState)
+    LaunchedEffect(currentBackStackEntry) {
+        bottomBarScrollBehavior.state.heightOffset = 0f
+        bottomBarScrollBehavior.state.contentOffset = 0f
+    }
+
+    val bottomBarNestedScrollConnection = remember(bottomBarScrollBehavior) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                bottomBarScrollBehavior.nestedScrollConnection.onPreScroll(available, source)
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                bottomBarScrollBehavior.nestedScrollConnection.onPostScroll(consumed, available, source)
+                if (available.y > 0f) {
+                    bottomBarScrollBehavior.state.heightOffset =
+                        (bottomBarScrollBehavior.state.heightOffset + available.y)
+                            .coerceIn(bottomBarScrollBehavior.state.heightOffsetLimit, 0f)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                return bottomBarScrollBehavior.nestedScrollConnection.onPostFling(consumed, available)
+            }
+        }
+    }
+
     // TODO: Refactor to use Scaffold once AnimatedVisibility issues are fixed;
     //  see https://issuetracker.google.com/issues/258270139.
-    Box(modifier) {
+    Box(modifier.nestedScroll(bottomBarNestedScrollConnection)) {
         val animeScrollState = rememberScrollState()
         val mangaScrollState = rememberScrollState()
         val exploreScrollState = rememberLazyListState()
@@ -407,6 +466,12 @@ fun MainScreen(
                             onNavigateToAccountSettings = {
                                 navController.navigate(AccountSettingsRoute)
                             },
+                            onNavigateToOwnerControlCenter = {
+                                navController.navigate(OwnerControlCenterRoute)
+                            },
+                            onNavigateToAnimeList = { userId ->
+                                navController.navigate(AnimeListRoute(userId))
+                            },
                         )
                     }
                     composable<SettingsPage> {
@@ -475,6 +540,18 @@ fun MainScreen(
                             },
                             onNavigateToAccountSettings = {
                                 navController.navigate(AccountSettingsRoute)
+                            },
+                            onNavigateToAnimeList = { userId ->
+                                navController.navigate(AnimeListRoute(userId))
+                            },
+                            onNavigateToAnime = { animeId ->
+                                navController.navigate(
+                                    MediaPage(
+                                        id = animeId,
+                                        source = "Profile",
+                                        mediaType = "ANIME"
+                                    )
+                                )
                             }
                         )
                     }
@@ -493,8 +570,32 @@ fun MainScreen(
                         )
                     }
                     composable<OwnerControlCenterRoute> {
+                        val isDarkMode = isSystemInDarkTheme()
+                        val context = LocalContext.current
                         OwnerControlCenterScreen(
-                            onBack = navController::navigateUp
+                            onBack = navController::navigateUp,
+                            playbackSourcesContent = {
+                                PlaybackSourcesManagementSection(
+                                    isDarkMode = isDarkMode,
+                                    context = context,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(bottom = 32.dp)
+                                )
+                            },
+                            aiAssistantContent = {
+                                SmartAiAssistantSection(
+                                    isDarkMode = isDarkMode,
+                                    context = context,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(bottom = 32.dp)
+                                )
+                            }
                         )
                     }
                     composable<EditProfileRoute> {
@@ -536,6 +637,22 @@ fun MainScreen(
                             }
                         )
                     }
+                    composable<AnimeListRoute> { backStackEntry ->
+                        val route = backStackEntry.toRoute<AnimeListRoute>()
+                        AnimeListScreen(
+                            userId = route.userId,
+                            onBack = navController::navigateUp,
+                            onAnimeClick = { animeId ->
+                                navController.navigate(
+                                    MediaPage(
+                                        id = animeId,
+                                        source = "AnimeList",
+                                        mediaType = "ANIME"
+                                    )
+                                )
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -570,14 +687,32 @@ fun MainScreen(
                                     else -> {}
                                 }
                             }
-                        }
+                        },
+                        modifier = Modifier
+                            .onSizeChanged { size ->
+                                if (size.height > 0) {
+                                    val limit = -size.height.toFloat()
+                                    bottomBarScrollBehavior.state.heightOffsetLimit = limit
+                                    bottomBarScrollBehavior.state.heightOffset =
+                                        bottomBarScrollBehavior.state.heightOffset.coerceIn(limit, 0f)
+                                }
+                            }
+                            .graphicsLayer {
+                                val maxTranslation = size.height.takeIf { it > 0f } ?: defaultNavBarHeightPx
+                                translationY = (-bottomBarScrollBehavior.state.heightOffset)
+                                    .coerceIn(0f, maxTranslation)
+                            }
                     )
                 }
             }
         }
 
+
+
         val isVideoPlayer = currentBackStackEntry?.destination?.hasRoute<VideoPlayerRoute>() == true
         val isEpisodesPage = currentBackStackEntry?.destination?.hasRoute<EpisodesRoute>() == true
+        val isSearchFabAllowed = currentBackStackEntry?.destination?.hasRoute<AnimeRoute>() == true
+                || currentBackStackEntry?.destination?.hasRoute<MangaRoute>() == true
         if (!isVideoPlayer && !isEpisodesPage) {
             SearchFrontDrop(
                 hasExtraPadding = isNavBarVisible &&
@@ -591,9 +726,7 @@ fun MainScreen(
                         )
                     )
                 },
-                isFabVisible = currentBackStackEntry?.destination?.hasRoute<SettingsPage>() == false
-                        && currentBackStackEntry?.destination?.hasRoute<ExploreRoute>() == false
-                        && !isVideoPlayer && !isEpisodesPage,
+                isFabVisible = isSearchFabAllowed,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(

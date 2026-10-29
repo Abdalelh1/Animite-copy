@@ -145,6 +145,8 @@ fun ProfileScreen(
     onNavigateToChat: ((String, String, String?) -> Unit)? = null,
     onNavigateToEditProfile: (() -> Unit)? = null,
     onNavigateToAccountSettings: (() -> Unit)? = null,
+    onNavigateToOwnerControlCenter: (() -> Unit)? = null,
+    onNavigateToAnimeList: ((String) -> Unit)? = null,
     contentWindowInsets: WindowInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout),
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
@@ -211,7 +213,10 @@ fun ProfileScreen(
             onNavigateToChat = { userId, name, avatar -> onNavigateToChat?.invoke(userId, name, avatar) },
             onNavigateToEditProfile = { onNavigateToEditProfile?.invoke() },
             onNavigateToSettings = { onNavigateToSettings(SettingsPage) },
+            onNavigateToOwnerControlCenter = onNavigateToOwnerControlCenter,
             onNavigateToAccountSettings = onNavigateToAccountSettings,
+            onNavigateToAnimeList = { userId -> onNavigateToAnimeList?.invoke(userId) },
+            onNavigateToAnime = { animeId -> onNavigateToMediaItem(MediaPage(id = animeId, source = "Profile", mediaType = "ANIME")) },
             modifier = Modifier.fillMaxSize()
         )
     }

@@ -13,13 +13,25 @@ service cloud.firestore {
 
     function isCallerAdmin() {
       return isAuthenticated() && (
-        request.auth.token.admin == true
-        || request.auth.token.role in ['admin', 'owner', 'moderator']
+        request.auth.token.get('admin', false) == true
+        || request.auth.token.get('role', '') in ['admin', 'owner', 'moderator']
       );
     }
 
     function isCallerOwner() {
-      return isAuthenticated() && request.auth.token.role == 'owner';
+      return isAuthenticated() && (
+        request.auth.token.get('role', '') == 'owner'
+        || request.auth.token.get('isOwner', false) == true
+        || (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isOwner', false) == true
+            || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'user') == 'owner'))
+      );
+    }
+
+    function isUserElite(userData) {
+      return userData.get('tier', 'regular') == 'elite'
+        || userData.get('isOwner', false) == true
+        || userData.get('role', 'user') == 'owner';
     }
 
     function isValidText(text, minLen, maxLen) {
@@ -32,24 +44,24 @@ service cloud.firestore {
 
     function isSystemInMaintenance() {
       return exists(/databases/$(database)/documents/system_settings/config)
-        && getSystemSettings().maintenanceMode == true;
+        && getSystemSettings().get('maintenanceMode', false) == true;
     }
 
     function areRegistrationsAllowed() {
       return !exists(/databases/$(database)/documents/system_settings/config)
-        || getSystemSettings().allowRegistrations != false;
+        || getSystemSettings().get('allowRegistrations', true) != false;
     }
 
     function areCommentsEnabled() {
       return isCallerAdmin()
         || !exists(/databases/$(database)/documents/system_settings/config)
-        || getSystemSettings().commentsEnabled != false;
+        || getSystemSettings().get('commentsEnabled', true) != false;
     }
 
     function areDirectMessagesEnabled() {
       return isCallerAdmin()
         || !exists(/databases/$(database)/documents/system_settings/config)
-        || getSystemSettings().directMessagesEnabled != false;
+        || getSystemSettings().get('directMessagesEnabled', true) != false;
     }
 
     // User profile: users/{userId}
@@ -62,13 +74,27 @@ service cloud.firestore {
         && isValidText(request.resource.data.displayName, 1, 50)
         && !('email' in request.resource.data)
         && !('phoneNumber' in request.resource.data)
-        && (!('role' in request.resource.data) || request.resource.data.role == 'user');
+        && (!('role' in request.resource.data) || request.resource.data.role == 'user')
+        && (!('tier' in request.resource.data) || request.resource.data.tier == 'regular')
+        && (!('isOwner' in request.resource.data) || request.resource.data.isOwner == false)
+        && (!('eliteGrantedAt' in request.resource.data) || request.resource.data.eliteGrantedAt == null)
+        && (!('eliteGrantedBy' in request.resource.data) || request.resource.data.eliteGrantedBy == null)
+        && (!('eliteBadges' in request.resource.data) || (request.resource.data.eliteBadges is list && request.resource.data.eliteBadges.size() == 0))
+        && (!('liveCoverUrl' in request.resource.data) || request.resource.data.liveCoverUrl == null)
+        && (!('liveCoverPosterUrl' in request.resource.data) || request.resource.data.liveCoverPosterUrl == null)
+        && (!('liveCoverMediaType' in request.resource.data) || request.resource.data.liveCoverMediaType == null);
       allow update: if (!isSystemInMaintenance() || isCallerOwner()) && (
-        // Regular user updating their own profile
+        // Self-update by the user
         (isOwner(userId)
           && request.resource.data.uid == userId
           && (request.resource.data.username == resource.data.username || isValidText(request.resource.data.username, 3, 30))
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['email', 'phoneNumber', 'roles', 'role', 'isVerified', 'isBanned', 'isSuspended', 'premiumUntil']))
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['email', 'phoneNumber', 'roles', 'role', 'isVerified', 'isBanned', 'isSuspended', 'premiumUntil', 'tier', 'eliteGrantedAt', 'eliteGrantedBy', 'eliteBadges', 'isOwner', 'customBadgeTitle'])
+          && (isUserElite(resource.data) || isCallerOwner() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['liveCoverUrl', 'liveCoverPosterUrl', 'liveCoverMediaType'])))
+        // Owner promotion/demotion and role management
+        || (isCallerOwner()
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isOwner'])
+          && (!('tier' in request.resource.data) || request.resource.data.tier in ['regular', 'elite'])
+          && (!('eliteBadges' in request.resource.data) || request.resource.data.eliteBadges is list))
         // Followers counter updates
         || (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followersCount']))
       );
@@ -143,7 +169,7 @@ service cloud.firestore {
         // Public counters: likesCount, replyCount, reportCount
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'replyCount', 'reportCount']))
         // Author soft-delete or Admin/Owner moderation
-        || ((request.auth.uid == resource.data.authorId || isCallerAdmin()) && request.resource.data.isDeleted == true)
+        || ((request.auth.uid == resource.data.authorId || isCallerAdmin()) && request.resource.data.get('isDeleted', false) == true)
       );
       allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isCallerAdmin());
 
@@ -173,7 +199,7 @@ service cloud.firestore {
         // Public counters: likesCount, commentCount
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentCount']))
         // Author soft-delete or Admin/Owner moderation
-        || ((request.auth.uid == resource.data.authorId || isCallerAdmin()) && request.resource.data.isDeleted == true)
+        || ((request.auth.uid == resource.data.authorId || isCallerAdmin()) && request.resource.data.get('isDeleted', false) == true)
       );
       allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isCallerAdmin());
 
@@ -227,6 +253,30 @@ service cloud.firestore {
       allow read: if isCallerOwner();
       // Audit logs are generated and written strictly by trusted backend Cloud Functions (Admin SDK)
       allow write: if false;
+    }
+
+    // Anime Lists: anime_lists/{entryId}
+    match /anime_lists/{entryId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.animeId is int
+        && request.resource.data.animeTitle is string
+        && request.resource.data.watchStatus in ['WATCHING', 'COMPLETED', 'ON_HOLD', 'DROPPED', 'PLAN_TO_WATCH']
+        && request.resource.data.progress is int
+        && request.resource.data.progress >= 0;
+      allow update: if isAuthenticated()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.animeId == resource.data.animeId;
+      allow delete: if isAuthenticated()
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // Anime & Character Arabic Translations: anime_translations/{docId}
+    match /anime_translations/{docId} {
+      allow read: if true;
+      allow write: if isAuthenticated() || true; // Allow client community translation contributions
     }
 
     // System Settings: system_settings/{settingId}

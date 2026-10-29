@@ -81,6 +81,9 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.common)
 
+    // Charts
+    implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
+
     testImplementation(libs.test.junit)
 
     androidTestImplementation(libs.androidx.test.junit)
